@@ -1,0 +1,1689 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RestMan Installer</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap");
+
+      :root {
+        --bg: #07070d;
+        --surface: #0f0f1a;
+        --surface2: #16162a;
+        --border: #1e1e3a;
+        --accent: #6c63ff;
+        --accent2: #ff6584;
+        --accent3: #43e97b;
+        --text: #e8e8f0;
+        --muted: #6b6b8a;
+        --success: #43e97b;
+        --error: #ff6584;
+        --warn: #ffd166;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      * {
+        --sb-track-color: #232e33;
+        --sb-thumb-color: #6c63ff;
+        --sb-size: 8px;
+      }
+
+      *::-webkit-scrollbar {
+        width: var(--sb-size);
+      }
+
+      *::-webkit-scrollbar-track {
+        background: var(--sb-track-color);
+        border-radius: 5px;
+      }
+
+      *::-webkit-scrollbar-thumb {
+        background: var(--sb-thumb-color);
+        border-radius: 5px;
+      }
+
+      @supports not selector(::-webkit-scrollbar) {
+        * {
+          scrollbar-color: var(--sb-thumb-color) var(--sb-track-color);
+        }
+      }
+
+      body {
+        font-family: "Syne", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        height: 100vh;
+        overflow: hidden;
+        user-select: none;
+        -webkit-app-region: no-drag;
+      }
+
+      /* Animated background */
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background:
+          radial-gradient(
+            ellipse 600px 400px at 10% 20%,
+            rgba(108, 99, 255, 0.08) 0%,
+            transparent 70%
+          ),
+          radial-gradient(
+            ellipse 400px 300px at 90% 80%,
+            rgba(67, 233, 123, 0.05) 0%,
+            transparent 70%
+          ),
+          radial-gradient(
+            ellipse 300px 200px at 60% 10%,
+            rgba(255, 101, 132, 0.04) 0%,
+            transparent 70%
+          );
+        pointer-events: none;
+        z-index: 0;
+      }
+
+      /* Titlebar */
+      #titlebar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 20px;
+        height: 44px;
+        -webkit-app-region: drag;
+        background: rgba(7, 7, 13, 0.8);
+        border-bottom: 1px solid var(--border);
+        position: relative;
+        z-index: 10;
+      }
+      #titlebar .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      #titlebar .brand span {
+        color: var(--accent);
+      }
+      #titlebar .controls {
+        display: flex;
+        gap: 8px;
+        -webkit-app-region: no-drag;
+      }
+      #titlebar .ctrl {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        cursor: pointer;
+        transition: opacity 0.2s;
+      }
+      #titlebar .ctrl:hover {
+        opacity: 0.7;
+      }
+      #titlebar .ctrl.close {
+        background: #ff5f57;
+      }
+      #titlebar .ctrl.min {
+        background: #febc2e;
+      }
+
+      /* Main layout */
+      #app {
+        display: flex;
+        height: calc(100vh - 44px);
+        position: relative;
+        z-index: 1;
+      }
+
+      /* Sidebar stepper */
+      #sidebar {
+        width: 200px;
+        background: var(--surface);
+        border-right: 1px solid var(--border);
+        padding: 32px 0;
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .step-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 20px;
+        cursor: default;
+        transition: background 0.2s;
+        position: relative;
+      }
+      .step-item.active {
+        background: rgba(108, 99, 255, 0.12);
+      }
+      .step-item.done .step-num {
+        background: var(--success);
+        color: #000;
+        border-color: var(--success);
+      }
+      .step-item.active .step-num {
+        background: var(--accent);
+        color: #fff;
+        border-color: var(--accent);
+        box-shadow: 0 0 12px rgba(108, 99, 255, 0.5);
+      }
+      .step-item.active::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 3px;
+        background: var(--accent);
+        border-radius: 0 2px 2px 0;
+      }
+
+      .step-num {
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        border: 1.5px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        font-weight: 700;
+        font-family: "JetBrains Mono", monospace;
+        flex-shrink: 0;
+        transition: all 0.3s;
+        color: var(--muted);
+      }
+      .step-label {
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+        transition: color 0.2s;
+      }
+      .step-item.active .step-label {
+        color: var(--text);
+      }
+      .step-item.done .step-label {
+        color: var(--success);
+      }
+
+      /* Content area */
+      #content {
+        flex: 1;
+        overflow-y: auto;
+        padding: 36px 40px;
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+      }
+      #content::-webkit-scrollbar {
+        width: 4px;
+      }
+      #content::-webkit-scrollbar-thumb {
+        background: var(--border);
+        border-radius: 2px;
+      }
+
+      /* Panels */
+      .panel {
+        display: none;
+        animation: fadeUp 0.3s ease;
+      }
+      .panel.active {
+        display: block;
+      }
+
+      @keyframes fadeUp {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      /* Typography */
+      h1 {
+        font-size: 28px;
+        font-weight: 800;
+        line-height: 1.2;
+        margin-bottom: 6px;
+        background: linear-gradient(135deg, var(--text) 0%, var(--muted) 100%);
+        background-clip: text;
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+      h1 em {
+        font-style: normal;
+        -webkit-text-fill-color: var(--accent);
+      }
+      .subtitle {
+        font-size: 13px;
+        color: var(--muted);
+        margin-bottom: 32px;
+        font-weight: 400;
+        line-height: 1.6;
+      }
+
+      /* Form elements */
+      .field {
+        margin-bottom: 20px;
+      }
+      .field label {
+        display: block;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 8px;
+      }
+      .field label .req {
+        color: var(--accent2);
+        margin-left: 3px;
+      }
+      .field .hint {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 5px;
+        font-family: "JetBrains Mono", monospace;
+      }
+
+      input[type="text"],
+      input[type="number"],
+      input[type="password"] {
+        width: 100%;
+        background: var(--surface2);
+        border: 1.5px solid var(--border);
+        border-radius: 8px;
+        padding: 10px 14px;
+        font-size: 13px;
+        font-family: "JetBrains Mono", monospace;
+        color: var(--text);
+        outline: none;
+        transition:
+          border-color 0.2s,
+          box-shadow 0.2s;
+      }
+      input:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(108, 99, 255, 0.12);
+      }
+      input::placeholder {
+        color: var(--muted);
+      }
+
+      .input-row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      .input-row input {
+        flex: 1;
+      }
+
+      /* Buttons */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 10px 22px;
+        border-radius: 8px;
+        font-family: "Syne", sans-serif;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+        border: none;
+        outline: none;
+        transition: all 0.2s;
+        letter-spacing: 0.03em;
+      }
+      .btn-primary {
+        background: var(--accent);
+        color: #fff;
+        box-shadow: 0 4px 20px rgba(108, 99, 255, 0.3);
+      }
+      .btn-primary:hover {
+        background: #7c74ff;
+        transform: translateY(-1px);
+        box-shadow: 0 6px 24px rgba(108, 99, 255, 0.4);
+      }
+      .btn-primary:active {
+        transform: translateY(0);
+      }
+      .btn-primary:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      .btn-ghost {
+        background: transparent;
+        color: var(--muted);
+        border: 1.5px solid var(--border);
+      }
+      .btn-ghost:hover {
+        border-color: var(--accent);
+        color: var(--text);
+      }
+
+      .btn-sm {
+        padding: 7px 14px;
+        font-size: 12px;
+      }
+      .btn-icon {
+        padding: 10px;
+      }
+
+      .btn-row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin-top: 28px;
+      }
+
+      /* Dep check cards */
+      .dep-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+        gap: 10px;
+        margin-bottom: 24px;
+      }
+      .dep-card {
+        background: var(--surface2);
+        border: 1.5px solid var(--border);
+        border-radius: 10px;
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        transition: border-color 0.3s;
+      }
+      .dep-card.ok {
+        border-color: rgba(67, 233, 123, 0.4);
+      }
+      .dep-card.missing {
+        border-color: rgba(255, 101, 132, 0.4);
+      }
+      .dep-card.checking {
+        border-color: var(--border);
+      }
+      .dep-name {
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+      }
+      .dep-status {
+        font-size: 20px;
+      }
+      .dep-badge {
+        font-size: 10px;
+        padding: 2px 8px;
+        border-radius: 100px;
+        font-weight: 600;
+        font-family: "JetBrains Mono", monospace;
+      }
+      .dep-badge.ok {
+        background: rgba(67, 233, 123, 0.15);
+        color: var(--success);
+      }
+      .dep-badge.missing {
+        background: rgba(255, 101, 132, 0.15);
+        color: var(--error);
+      }
+      .dep-badge.checking {
+        background: rgba(108, 99, 255, 0.15);
+        color: var(--accent);
+      }
+
+      /* Env var editor */
+      .env-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-bottom: 16px;
+      }
+      .env-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr 36px;
+        gap: 8px;
+        align-items: center;
+      }
+      .env-row input {
+        margin: 0;
+      }
+      .btn-remove {
+        width: 32px;
+        height: 32px;
+        background: rgba(255, 101, 132, 0.1);
+        border: 1.5px solid rgba(255, 101, 132, 0.2);
+        border-radius: 6px;
+        color: var(--error);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        transition: all 0.2s;
+      }
+      .btn-remove:hover {
+        background: rgba(255, 101, 132, 0.2);
+      }
+
+      /* Log terminal */
+      #log-box {
+        background: #050508;
+        border: 1.5px solid var(--border);
+        border-radius: 10px;
+        padding: 16px;
+        height: 280px;
+        overflow-y: auto;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 11.5px;
+        line-height: 1.7;
+        color: #8888aa;
+        margin-bottom: 20px;
+      }
+      #log-box::-webkit-scrollbar {
+        width: 4px;
+      }
+      #log-box::-webkit-scrollbar-thumb {
+        background: var(--border);
+      }
+      #log-box .log-success {
+        color: var(--success);
+      }
+      #log-box .log-error {
+        color: var(--error);
+      }
+      #log-box .log-info {
+        color: var(--accent);
+      }
+      #log-box .log-warn {
+        color: var(--warn);
+      }
+
+      /* Progress bar */
+      .progress-track {
+        height: 4px;
+        background: var(--border);
+        border-radius: 2px;
+        overflow: hidden;
+        margin-bottom: 20px;
+      }
+      .progress-bar {
+        height: 100%;
+        background: linear-gradient(90deg, var(--accent), var(--accent3));
+        border-radius: 2px;
+        transition: width 0.5s ease;
+      }
+
+      /* Success state */
+      .success-card {
+        background: var(--surface2);
+        border: 1.5px solid rgba(67, 233, 123, 0.3);
+        border-radius: 12px;
+        padding: 24px;
+        text-align: center;
+        margin-bottom: 20px;
+      }
+      .success-icon {
+        font-size: 48px;
+        margin-bottom: 12px;
+      }
+      .success-title {
+        font-size: 20px;
+        font-weight: 800;
+        color: var(--success);
+        margin-bottom: 6px;
+      }
+      .success-sub {
+        font-size: 13px;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .url-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: rgba(108, 99, 255, 0.1);
+        border: 1.5px solid rgba(108, 99, 255, 0.3);
+        border-radius: 100px;
+        padding: 6px 16px;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 13px;
+        color: var(--accent);
+        cursor: pointer;
+        transition: all 0.2s;
+        margin: 4px;
+      }
+      .url-pill:hover {
+        background: rgba(108, 99, 255, 0.2);
+      }
+
+      /* Info box */
+      .info-box {
+        background: rgba(108, 99, 255, 0.07);
+        border: 1px solid rgba(108, 99, 255, 0.2);
+        border-radius: 8px;
+        padding: 12px 16px;
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.6;
+        margin-bottom: 20px;
+      }
+      .info-box b {
+        color: var(--text);
+      }
+
+      /* Spinner */
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .spinner {
+        width: 14px;
+        height: 14px;
+        border: 2px solid rgba(255, 255, 255, 0.2);
+        border-top-color: #fff;
+        border-radius: 50%;
+        animation: spin 0.6s linear infinite;
+        flex-shrink: 0;
+      }
+
+      /* Separator */
+      .sep {
+        height: 1px;
+        background: var(--border);
+        margin: 24px 0;
+      }
+
+      /* DB choice cards */
+      .db-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        margin-bottom: 28px;
+      }
+      .db-card {
+        background: var(--surface2);
+        border: 2px solid var(--border);
+        border-radius: 14px;
+        padding: 24px 20px;
+        cursor: pointer;
+        transition: all 0.25s;
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+      }
+      .db-card:hover {
+        border-color: var(--accent);
+        background: rgba(108, 99, 255, 0.07);
+        transform: translateY(-2px);
+      }
+      .db-card.selected {
+        border-color: var(--accent);
+        background: rgba(108, 99, 255, 0.13);
+        box-shadow: 0 0 0 3px rgba(108, 99, 255, 0.15);
+      }
+      .db-card.selected-sqlite {
+        border-color: var(--accent3);
+        background: rgba(67, 233, 123, 0.08);
+        box-shadow: 0 0 0 3px rgba(67, 233, 123, 0.12);
+      }
+      .db-card-icon {
+        font-size: 36px;
+      }
+      .db-card-title {
+        font-size: 15px;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+      }
+      .db-card-desc {
+        font-size: 11px;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+      .db-card-badge {
+        font-size: 10px;
+        padding: 3px 10px;
+        border-radius: 100px;
+        font-weight: 700;
+        font-family: "JetBrains Mono", monospace;
+        background: rgba(108, 99, 255, 0.15);
+        color: var(--accent);
+      }
+      .db-card-badge.green {
+        background: rgba(67, 233, 123, 0.15);
+        color: var(--accent3);
+      }
+
+      /* Real-time dep install log */
+      #dep-install-log {
+        background: #050508;
+        border: 1.5px solid var(--border);
+        border-radius: 10px;
+        padding: 12px 16px;
+        height: 200px;
+        overflow-y: auto;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 11px;
+        line-height: 1.8;
+        color: #8888aa;
+        margin-top: 14px;
+        display: none;
+      }
+      .dep-install-progress {
+        margin-top: 14px;
+        display: none;
+      }
+      .dep-install-progress .progress-track {
+        margin-bottom: 8px;
+      }
+      .dep-install-step-label {
+        font-size: 11px;
+        color: var(--muted);
+        font-family: "JetBrains Mono", monospace;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Titlebar -->
+    <div id="titlebar">
+      <div class="brand">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <rect x="1" y="1" width="6" height="6" rx="1.5" fill="#6c63ff" />
+          <rect
+            x="9"
+            y="1"
+            width="6"
+            height="6"
+            rx="1.5"
+            fill="#43e97b"
+            opacity="0.7"
+          />
+          <rect
+            x="1"
+            y="9"
+            width="6"
+            height="6"
+            rx="1.5"
+            fill="#ff6584"
+            opacity="0.7"
+          />
+          <rect
+            x="9"
+            y="9"
+            width="6"
+            height="6"
+            rx="1.5"
+            fill="#6c63ff"
+            opacity="0.4"
+          />
+        </svg>
+        RestMan <span>Installer</span>
+      </div>
+      <div class="controls">
+        <div class="ctrl min" id="btn-min"></div>
+        <div class="ctrl close" id="btn-close"></div>
+      </div>
+    </div>
+
+    <!-- App -->
+    <div id="app">
+      <!-- Sidebar -->
+      <div id="sidebar">
+        <div class="step-item active" data-step="0">
+          <div class="step-num">1</div>
+          <div class="step-label">Welcome</div>
+        </div>
+        <div class="step-item" data-step="1">
+          <div class="step-num">2</div>
+          <div class="step-label">Database</div>
+        </div>
+        <div class="step-item" data-step="2">
+          <div class="step-num">3</div>
+          <div class="step-label">Dependencies</div>
+        </div>
+        <div class="step-item" data-step="3">
+          <div class="step-num">4</div>
+          <div class="step-label">Location</div>
+        </div>
+        <div class="step-item" data-step="4">
+          <div class="step-num">5</div>
+          <div class="step-label">Environment</div>
+        </div>
+        <div class="step-item" data-step="5">
+          <div class="step-num">6</div>
+          <div class="step-label">Install</div>
+        </div>
+        <div class="step-item" data-step="6">
+          <div class="step-num">7</div>
+          <div class="step-label">Done</div>
+        </div>
+      </div>
+
+      <!-- Content -->
+      <div id="content">
+        <!-- Step 0: Welcome -->
+        <div class="panel active" id="step-0">
+          <h1>Welcome to<br /><em>App Installer</em></h1>
+          <p class="subtitle">
+            This wizard will set up your app, install all dependencies,<br />configure
+            it to run 24/7, and enable automatic updates.
+          </p>
+
+          <div class="info-box">
+            <b>What this installer does:</b><br />
+            ✦ Clones the RestMan repo &amp; installs services if needed<br />
+            ✦ Installs frontend &amp; backend dependencies<br />
+            ✦ Configures your environment variables locally<br />
+            ✦ Ensures the app is running automatically on reboots<br />
+            ✦ Sets up auto-updates from GitHub every 30 minutes
+          </div>
+
+          <div class="field" style="display: none">
+            <span id="repo-url" style="display: none"
+              >https://github.com/nithin-sivakumar/open-restman</span
+            >
+          </div>
+
+          <div class="btn-row">
+            <button class="btn btn-primary" id="btn-next-0">
+              Get Started
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path
+                  d="M5 2.5L9.5 7 5 11.5"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Step 1: Database Choice -->
+        <div class="panel" id="step-1">
+          <h1>Choose Your<br /><em>Database</em></h1>
+          <p class="subtitle">
+            Select the database backend RestMan will use to store data.<br />
+            This affects which dependencies are required.
+          </p>
+
+          <div class="db-grid">
+            <div
+              class="db-card"
+              id="db-card-mongo"
+              onclick="selectDb('mongodb')"
+            >
+              <div class="db-card-icon">🍃</div>
+              <div class="db-card-title">MongoDB</div>
+              <div class="db-card-desc">
+                Document-based NoSQL database. Requires MongoDB to be installed
+                on this machine.
+              </div>
+              <div class="db-card-badge">Requires install</div>
+            </div>
+            <div
+              class="db-card"
+              id="db-card-sqlite"
+              onclick="selectDb('sqlite')"
+            >
+              <div class="db-card-icon">🪶</div>
+              <div class="db-card-title">SQLite</div>
+              <div class="db-card-desc">
+                Lightweight file-based database. No extra installation needed —
+                works out of the box.
+              </div>
+              <div class="db-card-badge green">Zero setup</div>
+            </div>
+          </div>
+
+          <div class="info-box" id="db-info-box" style="display: none"></div>
+
+          <div class="btn-row">
+            <button class="btn btn-ghost" id="btn-back-1">Back</button>
+            <button class="btn btn-primary" id="btn-next-1" disabled>
+              Continue
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path
+                  d="M5 2.5L9.5 7 5 11.5"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Step 2: Dependencies -->
+        <div class="panel" id="step-2">
+          <h1>Check<br /><em>Dependencies</em></h1>
+          <p class="subtitle">Scanning your system for required tools…</p>
+
+          <div
+            id="dep-log-box"
+            style="
+              background: #050508;
+              border: 1.5px solid var(--border);
+              border-radius: 10px;
+              padding: 12px 16px;
+              height: 160px;
+              overflow-y: auto;
+              font-family: &quot;JetBrains Mono&quot;, monospace;
+              font-size: 11px;
+              line-height: 1.8;
+              color: #8888aa;
+              margin-bottom: 16px;
+            "
+          ></div>
+
+          <div class="dep-grid" id="dep-grid">
+            <div class="dep-card checking" id="dep-node">
+              <div class="dep-status">⏳</div>
+              <div class="dep-name">Node.js</div>
+              <div class="dep-badge checking">checking</div>
+            </div>
+            <div class="dep-card checking" id="dep-npm">
+              <div class="dep-status">⏳</div>
+              <div class="dep-name">npm</div>
+              <div class="dep-badge checking">checking</div>
+            </div>
+            <div
+              class="dep-card checking"
+              id="dep-mongod"
+              style="display: none"
+            >
+              <div class="dep-status">⏳</div>
+              <div class="dep-name">MongoDB</div>
+              <div class="dep-badge checking">checking</div>
+            </div>
+            <div class="dep-card checking" id="dep-git">
+              <div class="dep-status">⏳</div>
+              <div class="dep-name">Git</div>
+              <div class="dep-badge checking">checking</div>
+            </div>
+            <div class="dep-card checking" id="dep-pm2">
+              <div class="dep-status">⏳</div>
+              <div class="dep-name">PM2</div>
+              <div class="dep-badge checking">checking</div>
+            </div>
+          </div>
+
+          <!-- Real-time install progress (shown only when installing missing deps) -->
+          <div class="dep-install-progress" id="dep-install-progress">
+            <div class="progress-track">
+              <div
+                class="progress-bar"
+                id="dep-progress-bar"
+                style="width: 0%"
+              ></div>
+            </div>
+            <div class="dep-install-step-label" id="dep-install-step-label">
+              Preparing…
+            </div>
+          </div>
+          <div id="dep-install-log"></div>
+
+          <div id="dep-status-msg" class="info-box" style="display: none"></div>
+
+          <div class="btn-row">
+            <button class="btn btn-ghost" id="btn-back-2">Back</button>
+            <button
+              class="btn btn-primary"
+              id="btn-install-deps"
+              style="display: none"
+            >
+              <div class="spinner" id="dep-spinner" style="display: none"></div>
+              Install Missing
+            </button>
+            <button
+              class="btn btn-primary"
+              id="btn-next-2"
+              style="display: none"
+            >
+              Continue
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path
+                  d="M5 2.5L9.5 7 5 11.5"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Step 3: Location -->
+        <div class="panel" id="step-3">
+          <h1>Install<br /><em>Location</em></h1>
+          <p class="subtitle">
+            Choose where the app will be installed on your system.
+          </p>
+
+          <div class="field">
+            <label>Installation Directory <span class="req">*</span></label>
+            <div class="input-row">
+              <input
+                type="text"
+                id="install-dir"
+                placeholder="/home/user/restman"
+                readonly
+              />
+              <button class="btn btn-ghost btn-sm" id="btn-browse">
+                Browse
+              </button>
+            </div>
+            <div class="hint">
+              The app repo will be cloned into a subfolder here
+            </div>
+          </div>
+
+          <div class="sep"></div>
+
+          <h1>Optional <em>Tweaks</em></h1>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px">
+            <div class="field">
+              <label>RestMan Port</label>
+              <input
+                type="number"
+                id="restman-port"
+                value="7777"
+                min="1000"
+                max="65535"
+              />
+              <div class="hint">
+                RestMan will run at: http://localhost:<span id="fe-port-preview"
+                  >7777</span
+                >
+              </div>
+            </div>
+          </div>
+
+          <div class="btn-row">
+            <button class="btn btn-ghost" id="btn-back-3">Back</button>
+            <button class="btn btn-primary" id="btn-next-3">
+              Continue
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path
+                  d="M5 2.5L9.5 7 5 11.5"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Step 4: Environment Variables -->
+        <div class="panel" id="step-4">
+          <h1>Environment<br /><em>Variables</em></h1>
+          <p class="subtitle">
+            Configure your app's environment. These will be written to
+            <code style="color: var(--accent); font-size: 12px">.env</code>
+            files.
+          </p>
+
+          <div class="info-box">
+            <b>Tip:</b> Keys starting with
+            <code style="color: var(--accent)">REACT_APP_</code> go to the
+            frontend <code>.env</code>. All others go to the backend.
+          </div>
+
+          <div class="env-list" id="env-list"></div>
+
+          <div class="btn-row">
+            <button class="btn btn-ghost" id="btn-back-4">Back</button>
+            <button class="btn btn-primary" id="btn-next-4">
+              Review &amp; Install
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path
+                  d="M5 2.5L9.5 7 5 11.5"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Step 5: Installing -->
+        <div class="panel" id="step-5">
+          <h1>Installing<br /><em>Your App</em></h1>
+          <p class="subtitle">
+            Sit back while the installer sets everything up for you.
+          </p>
+
+          <div class="progress-track">
+            <div class="progress-bar" id="progress-bar" style="width: 0%"></div>
+          </div>
+
+          <div id="log-box"></div>
+
+          <div class="btn-row">
+            <button class="btn btn-primary" id="btn-start-install">
+              <div
+                class="spinner"
+                id="install-spinner"
+                style="display: none"
+              ></div>
+              <span id="install-btn-label">Start Installation</span>
+            </button>
+            <button class="btn btn-ghost" id="btn-copy-logs">
+              📋 Copy Logs
+            </button>
+          </div>
+        </div>
+
+        <!-- Step 6: Done -->
+        <div class="panel" id="step-6">
+          <h1>Installation<br /><em>Complete!</em></h1>
+
+          <div class="success-card">
+            <div class="success-icon">🚀</div>
+            <div class="success-title">Your app is live!</div>
+            <div class="success-sub">
+              PM2 is running your app 24/7.<br />It will start automatically on
+              reboot and auto-update from GitHub.
+            </div>
+          </div>
+
+          <div style="text-align: center; margin-bottom: 20px">
+            <div id="url-pills"></div>
+          </div>
+
+          <div class="info-box">
+            <b>Useful PM2 commands:</b><br />
+            <code style="color: var(--accent)">pm2 list</code> — view running
+            processes<br />
+            <code style="color: var(--accent)">pm2 logs restman-app</code> —
+            stream backend logs<br />
+            <code style="color: var(--accent)">pm2 restart all</code> — restart
+            everything<br />
+            <code style="color: var(--accent)">pm2 monit</code> — live
+            monitoring dashboard<br />
+            <code style="color: var(--accent)">pm2 delete all</code> — stop
+            restman service
+          </div>
+
+          <div class="btn-row" style="justify-content: center">
+            <button class="btn btn-ghost" id="btn-done">Close Installer</button>
+            <button class="btn btn-ghost" id="btn-view-logs">
+              📋 View Logs
+            </button>
+          </div>
+        </div>
+
+        <!-- Step 7: Logs viewer -->
+        <div class="panel" id="step-7">
+          <h1>Installation<br /><em>Logs</em></h1>
+          <p class="subtitle">Full log output from your installation.</p>
+
+          <div
+            id="log-box-full"
+            style="
+              background: #050508;
+              border: 1.5px solid var(--border);
+              border-radius: 10px;
+              padding: 16px;
+              height: 420px;
+              overflow-y: auto;
+              font-family: &quot;JetBrains Mono&quot;, monospace;
+              font-size: 11.5px;
+              line-height: 1.7;
+              color: #8888aa;
+              margin-bottom: 20px;
+            "
+          ></div>
+
+          <div class="btn-row" style="justify-content: center">
+            <button class="btn btn-ghost" id="btn-back-logs">
+              ← Back to Summary
+            </button>
+            <button class="btn btn-ghost" id="btn-copy-logs-full">
+              📋 Copy Logs
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const { ipcRenderer } = require("electron");
+
+      // ── state ──────────────────────────────────────────────────────────────────
+      let currentStep = 0;
+      let deps = {};
+      let platform = "";
+      let selectedDb = null; // 'mongodb' | 'sqlite'
+
+      // ── navigation ─────────────────────────────────────────────────────────────
+      // Total "real" steps shown in sidebar = 7 (0-6); step-7 is the hidden log viewer
+      function goTo(step) {
+        document
+          .querySelectorAll(".panel")
+          .forEach((p, i) => p.classList.toggle("active", i === step));
+        document.querySelectorAll(".step-item").forEach((s, i) => {
+          if (i >= 7) return;
+          s.classList.remove("active", "done");
+          if (i < step) s.classList.add("done");
+          if (i === step) s.classList.add("active");
+          const num = s.querySelector(".step-num");
+          num.textContent = i < step ? "✓" : i + 1;
+        });
+        currentStep = step;
+      }
+
+      // ── db selection ────────────────────────────────────────────────────────────
+      function selectDb(db) {
+        selectedDb = db;
+        document
+          .getElementById("db-card-mongo")
+          .classList.remove("selected", "selected-sqlite");
+        document
+          .getElementById("db-card-sqlite")
+          .classList.remove("selected", "selected-sqlite");
+        const infoBox = document.getElementById("db-info-box");
+
+        if (db === "mongodb") {
+          document.getElementById("db-card-mongo").classList.add("selected");
+          infoBox.style.display = "block";
+          infoBox.innerHTML =
+            "🍃 <b>MongoDB selected.</b> The installer will verify that MongoDB is installed on this machine and offer to install it if missing.";
+        } else {
+          document
+            .getElementById("db-card-sqlite")
+            .classList.add("selected-sqlite");
+          infoBox.style.display = "block";
+          infoBox.innerHTML =
+            '🪶 <b>SQLite selected.</b> No additional database installation required. A local <code style="color:var(--accent3)">restman.db</code> file will be created in the app directory.';
+        }
+        document.getElementById("btn-next-1").disabled = false;
+      }
+
+      // ── helpers ────────────────────────────────────────────────────────────────
+      function getEnvVars() {
+        const rows = document.querySelectorAll("#env-list .env-row");
+        const obj = {};
+        rows.forEach((r) => {
+          const k = r.querySelector(".env-key").value.trim();
+          const v = r.querySelector(".env-val").value.trim();
+          if (k) obj[k] = v;
+        });
+        return obj;
+      }
+
+      function addEnvRow(key = "", val = "") {
+        const list = document.getElementById("env-list");
+        const row = document.createElement("div");
+        row.className = "env-row";
+        row.innerHTML = `
+      <input class="env-key" type="text" placeholder="VARIABLE_NAME" value="${key}"/>
+      <input class="env-val" type="text" placeholder="value" value="${val}"/>
+      <button class="btn-remove" title="Remove">×</button>
+    `;
+        row.querySelector(".btn-remove").onclick = () => row.remove();
+        list.appendChild(row);
+      }
+
+      // ── dep check log ──────────────────────────────────────────────────────────
+      function appendDepLog(text) {
+        const box = document.getElementById("dep-log-box");
+        if (!box) return;
+        text
+          .split("\n")
+          .filter((l) => l.trim())
+          .forEach((line) => {
+            const row = document.createElement("div");
+            row.style.cssText = "display:flex; gap:10px; align-items:baseline;";
+            const ts = document.createElement("span");
+            const now = new Date();
+            ts.textContent = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
+            ts.style.cssText =
+              "color:#3a3a5a; font-size:10px; flex-shrink:0; user-select:none;";
+            const msg = document.createElement("span");
+            msg.textContent = line;
+            if (line.includes("✅")) msg.style.color = "var(--success)";
+            else if (line.includes("❌")) msg.style.color = "var(--error)";
+            else if (line.includes("⚠️")) msg.style.color = "var(--warn)";
+            else if (
+              line.includes("🔍") ||
+              line.includes("⏳") ||
+              line.includes("🎉")
+            )
+              msg.style.color = "var(--accent)";
+            row.appendChild(ts);
+            row.appendChild(msg);
+            box.appendChild(row);
+            box.scrollTop = box.scrollHeight;
+          });
+      }
+
+      // ── dep install real-time log ──────────────────────────────────────────────
+      function appendDepInstallLog(text) {
+        const box = document.getElementById("dep-install-log");
+        if (!box) return;
+        text
+          .split("\n")
+          .filter((l) => l.trim())
+          .forEach((line) => {
+            const row = document.createElement("div");
+            row.style.cssText = "display:flex; gap:10px; align-items:baseline;";
+            const ts = document.createElement("span");
+            const now = new Date();
+            ts.textContent = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
+            ts.style.cssText =
+              "color:#3a3a5a; font-size:10px; flex-shrink:0; user-select:none;";
+            const msg = document.createElement("span");
+            msg.textContent = line;
+            if (
+              line.includes("✅") ||
+              line.toLowerCase().includes("complete") ||
+              line.toLowerCase().includes("success")
+            )
+              msg.style.color = "var(--success)";
+            else if (
+              line.includes("❌") ||
+              line.toLowerCase().includes("error") ||
+              line.toLowerCase().includes("failed")
+            )
+              msg.style.color = "var(--error)";
+            else if (line.includes("⚠️") || line.toLowerCase().includes("warn"))
+              msg.style.color = "var(--warn)";
+            else if (
+              line.includes("📦") ||
+              line.includes("🔧") ||
+              line.includes("⏳")
+            )
+              msg.style.color = "var(--accent)";
+            row.appendChild(ts);
+            row.appendChild(msg);
+            box.appendChild(row);
+            box.scrollTop = box.scrollHeight;
+          });
+      }
+
+      // ── main install log ───────────────────────────────────────────────────────
+      function appendLog(text) {
+        const box = document.getElementById("log-box");
+        text
+          .split("\n")
+          .filter((l) => l.trim())
+          .forEach((line) => {
+            const row = document.createElement("div");
+            row.style.cssText = "display:flex; gap:10px; align-items:baseline;";
+            const ts = document.createElement("span");
+            const now = new Date();
+            ts.textContent = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
+            ts.style.cssText =
+              "color:#3a3a5a; font-size:10px; flex-shrink:0; user-select:none;";
+            const msg = document.createElement("span");
+            msg.textContent = line;
+            if (
+              line.includes("✅") ||
+              line.includes("complete") ||
+              line.includes("done")
+            )
+              msg.className = "log-success";
+            else if (
+              line.includes("❌") ||
+              line.includes("Error") ||
+              line.includes("error")
+            )
+              msg.className = "log-error";
+            else if (
+              line.includes("📦") ||
+              line.includes("🔁") ||
+              line.includes("⚙️") ||
+              line.includes("🚀") ||
+              line.includes("🔒") ||
+              line.includes("🔄") ||
+              line.includes("📝") ||
+              line.includes("🏗️")
+            )
+              msg.className = "log-info";
+            else if (line.includes("⚠️")) msg.className = "log-warn";
+            row.appendChild(ts);
+            row.appendChild(msg);
+            box.appendChild(row);
+            box.scrollTop = box.scrollHeight;
+          });
+      }
+
+      // ── route incoming logs to the right box ───────────────────────────────────
+      ipcRenderer.on("log", (_, text) => {
+        if (currentStep === 2) appendDepLog(text);
+        else appendLog(text);
+      });
+
+      // New channel: streamed output during dep installation
+      ipcRenderer.on("dep-install-log", (_, text) => {
+        appendDepInstallLog(text);
+      });
+
+      // Progress updates from dep installer
+      ipcRenderer.on("dep-install-progress", (_, { percent, label }) => {
+        document.getElementById("dep-progress-bar").style.width = percent + "%";
+        document.getElementById("dep-install-step-label").textContent = label;
+      });
+
+      // ── init ───────────────────────────────────────────────────────────────────
+      (async () => {
+        platform = await ipcRenderer.invoke("get-platform");
+        const home = await ipcRenderer.invoke("get-home");
+        document.getElementById("install-dir").value =
+          home + (platform === "win32" ? "\\restman" : "/restman");
+
+        // Default env vars — mongo URI added dynamically based on db choice
+        addEnvRow(
+          "PORT",
+          String(document.getElementById("restman-port").value),
+        );
+        addEnvRow(
+          "REACT_APP_API_URL",
+          `http://localhost:${document.getElementById("restman-port").value}`,
+        );
+
+        document.getElementById("restman-port").oninput = function () {
+          document.getElementById("fe-port-preview").textContent = this.value;
+          document.querySelectorAll("#env-list .env-row").forEach((row) => {
+            const key = row.querySelector(".env-key").value.trim();
+            if (key === "REACT_APP_API_URL")
+              row.querySelector(".env-val").value =
+                `http://localhost:${this.value}`;
+            if (key === "PORT")
+              row.querySelector(".env-val").value = `${this.value}`;
+          });
+        };
+      })();
+
+      // ── port validation helper ─────────────────────────────────────────────────
+      function isValidPort(val) {
+        const n = parseInt(val, 10);
+        return !isNaN(n) && n >= 1000 && n <= 65535;
+      }
+
+      // ── copy logs ─────────────────────────────────────────────────────────────
+      document.getElementById("btn-copy-logs").onclick = () => {
+        const text = Array.from(document.querySelectorAll("#log-box div"))
+          .map(
+            (r) =>
+              `[${r.children[0]?.textContent ?? ""}] ${r.children[1]?.textContent ?? ""}`,
+          )
+          .join("\n");
+        navigator.clipboard.writeText(text);
+        const btn = document.getElementById("btn-copy-logs");
+        btn.textContent = "✅ Copied!";
+        setTimeout(() => (btn.textContent = "📋 Copy Logs"), 2000);
+      };
+
+      document.getElementById("btn-view-logs").onclick = () => {
+        const full = document.getElementById("log-box-full");
+        full.innerHTML = "";
+        document
+          .querySelectorAll("#log-box div")
+          .forEach((row) => full.appendChild(row.cloneNode(true)));
+        full.scrollTop = full.scrollHeight;
+        goTo(7);
+      };
+
+      document.getElementById("btn-back-logs").onclick = () => goTo(6);
+
+      document.getElementById("btn-copy-logs-full").onclick = () => {
+        const text = Array.from(document.querySelectorAll("#log-box-full div"))
+          .map(
+            (r) =>
+              `[${r.children[0]?.textContent ?? ""}] ${r.children[1]?.textContent ?? ""}`,
+          )
+          .join("\n");
+        navigator.clipboard.writeText(text);
+        const btn = document.getElementById("btn-copy-logs-full");
+        btn.textContent = "✅ Copied!";
+        setTimeout(() => (btn.textContent = "📋 Copy Logs"), 2000);
+      };
+
+      // ── window controls ────────────────────────────────────────────────────────
+      document.getElementById("btn-close").onclick = () =>
+        ipcRenderer.send("quit-app");
+      document.getElementById("btn-min").onclick = () =>
+        ipcRenderer.send("minimize-app");
+
+      // ── Step 0: Welcome ────────────────────────────────────────────────────────
+      document.getElementById("btn-next-0").onclick = () => goTo(1);
+
+      // ── Step 1: Database ───────────────────────────────────────────────────────
+      document.getElementById("btn-back-1").onclick = () => goTo(0);
+      document.getElementById("btn-next-1").onclick = () => {
+        // Inject or remove MONGO_URI env row based on selection
+        const existing = Array.from(
+          document.querySelectorAll("#env-list .env-row"),
+        ).find((r) => r.querySelector(".env-key").value.trim() === "MONGO_URI");
+        const existingDbType = Array.from(
+          document.querySelectorAll("#env-list .env-row"),
+        ).find((r) => r.querySelector(".env-key").value.trim() === "DB_TYPE");
+
+        if (selectedDb === "mongodb") {
+          if (!existing)
+            addEnvRow("MONGO_URI", "mongodb://localhost:27017/restman");
+          if (existingDbType) existingDbType.remove();
+          // Show MongoDB card in dep check
+          document.getElementById("dep-mongod").style.display = "";
+        } else {
+          if (existing) existing.remove();
+          if (!existingDbType) addEnvRow("DB_TYPE", "sqlite");
+          // Hide MongoDB card in dep check
+          document.getElementById("dep-mongod").style.display = "none";
+        }
+        goTo(2);
+        checkDeps();
+      };
+
+      // ── Step 2: Dependencies ───────────────────────────────────────────────────
+      async function checkDeps() {
+        deps = await ipcRenderer.invoke("check-deps", {
+          checkMongo: selectedDb === "mongodb",
+        });
+
+        const map = {
+          node: "dep-node",
+          npm: "dep-npm",
+          mongod: "dep-mongod",
+          git: "dep-git",
+          pm2: "dep-pm2",
+        };
+        for (const [key, id] of Object.entries(map)) {
+          const card = document.getElementById(id);
+          // Skip mongo card if sqlite
+          if (key === "mongod" && selectedDb === "sqlite") continue;
+          const ok = deps[key];
+          card.className = "dep-card " + (ok ? "ok" : "missing");
+          card.querySelector(".dep-status").textContent = ok ? "✅" : "❌";
+          card.querySelector(".dep-badge").className =
+            "dep-badge " + (ok ? "ok" : "missing");
+          card.querySelector(".dep-badge").textContent = ok
+            ? "Resolved"
+            : "Missing";
+        }
+
+        const missing = Object.entries(deps)
+          .filter(([, v]) => !v)
+          .map(([k]) => k);
+        const msgEl = document.getElementById("dep-status-msg");
+        msgEl.style.display = "block";
+
+        if (missing.length === 0) {
+          msgEl.innerHTML =
+            "✅ <b>All dependencies found!</b> You're ready to continue.";
+          document.getElementById("btn-next-2").style.display = "inline-flex";
+          document.getElementById("btn-install-deps").style.display = "none";
+        } else {
+          const names = missing.map(
+            (k) =>
+              ({
+                node: "Node.js",
+                npm: "npm",
+                mongod: "MongoDB",
+                git: "Git",
+                pm2: "PM2",
+              })[k] || k,
+          );
+          msgEl.innerHTML = `⚠️ <b>Missing:</b> ${names.join(", ")}. Click "Install Missing" to auto-install them.`;
+          document.getElementById("btn-install-deps").style.display =
+            "inline-flex";
+          document.getElementById("btn-next-2").style.display = "none";
+        }
+      }
+
+      document.getElementById("btn-back-2").onclick = () => goTo(1);
+
+      document.getElementById("btn-install-deps").onclick = async () => {
+        const missing = Object.entries(deps)
+          .filter(([, v]) => !v)
+          .map(([k]) => k);
+        const btn = document.getElementById("btn-install-deps");
+        const spinner = document.getElementById("dep-spinner");
+
+        btn.disabled = true;
+        spinner.style.display = "inline-block";
+        btn.childNodes[2] && (btn.childNodes[2].textContent = " Installing…");
+
+        // Show real-time progress UI
+        const progressEl = document.getElementById("dep-install-progress");
+        const logEl = document.getElementById("dep-install-log");
+        progressEl.style.display = "block";
+        logEl.style.display = "block";
+        document.getElementById("dep-status-msg").style.display = "none";
+
+        const res = await ipcRenderer.invoke("install-deps", {
+          missing,
+          platform,
+        });
+
+        spinner.style.display = "none";
+        btn.disabled = false;
+        progressEl.style.display = "none"; // hide progress bar, keep log visible
+
+        if (res.ok) {
+          btn.style.display = "none";
+          document.getElementById("dep-status-msg").style.display = "block";
+          document.getElementById("dep-status-msg").innerHTML =
+            "✅ <b>Dependencies installed!</b> Rechecking…";
+          await checkDeps();
+        } else {
+          document.getElementById("dep-status-msg").style.display = "block";
+          document.getElementById("dep-status-msg").innerHTML =
+            `❌ <b>Error:</b> ${res.error}`;
+        }
+      };
+
+      document.getElementById("btn-next-2").onclick = () => goTo(3);
+
+      // ── Step 3: Location ───────────────────────────────────────────────────────
+      document.getElementById("btn-browse").onclick = async () => {
+        const dir = await ipcRenderer.invoke("pick-folder");
+        if (dir) document.getElementById("install-dir").value = dir;
+      };
+
+      document.getElementById("btn-back-3").onclick = () => goTo(2);
+      document.getElementById("btn-next-3").onclick = () => {
+        const dir = document.getElementById("install-dir").value.trim();
+        if (!dir) return alert("Please select an installation directory.");
+        const port = document.getElementById("restman-port").value;
+        if (!isValidPort(port))
+          return alert("Please enter a valid port between 1000 and 65535.");
+        goTo(4);
+      };
+
+      // ── Step 4: Env Vars ───────────────────────────────────────────────────────
+      document.getElementById("btn-back-4").onclick = () => goTo(3);
+      document.getElementById("btn-next-4").onclick = () => goTo(5);
+
+      // ── Step 5: Install ────────────────────────────────────────────────────────
+      let progressVal = 0;
+      function setProgress(p) {
+        progressVal = p;
+        document.getElementById("progress-bar").style.width = p + "%";
+      }
+
+      document.getElementById("btn-start-install").onclick = async () => {
+        const btn = document.getElementById("btn-start-install");
+        const spinner = document.getElementById("install-spinner");
+        const label = document.getElementById("install-btn-label");
+        btn.disabled = true;
+        spinner.style.display = "inline-block";
+        label.textContent = "Installing…";
+
+        // Milestone-based progress (replaced by real log messages from main.js)
+        const prog = [5, 15, 30, 50, 65, 75, 85, 92, 97];
+        let pi = 0;
+        const progTimer = setInterval(() => {
+          if (pi < prog.length) setProgress(prog[pi++]);
+        }, 2800);
+
+        const res = await ipcRenderer.invoke("do-install", {
+          repoUrl: "https://github.com/nithin-sivakumar/open-restman",
+          installDir: document.getElementById("install-dir").value.trim(),
+          envVars: getEnvVars(),
+          frontendPort: document.getElementById("restman-port").value,
+          backendPort: document.getElementById("restman-port").value,
+          dbType: selectedDb,
+          platform,
+        });
+
+        clearInterval(progTimer);
+        setProgress(100);
+        spinner.style.display = "none";
+
+        if (res.ok) {
+          setTimeout(() => {
+            goTo(6);
+            const pills = document.getElementById("url-pills");
+            pills.innerHTML = "";
+            const fePort = document.getElementById("restman-port").value;
+            const pill = document.createElement("span");
+            pill.className = "url-pill";
+            pill.innerHTML = `🔗 Open RestMan — localhost:${fePort}`;
+            pill.onclick = () =>
+              ipcRenderer.invoke("open-browser", `http://localhost:${fePort}`);
+            pills.appendChild(pill);
+          }, 600);
+        } else {
+          label.textContent = "Retry Installation";
+          btn.disabled = false;
+          appendLog(`\n❌ Installation failed: ${res.error}\n`);
+        }
+      };
+
+      // ── Step 6: Done ───────────────────────────────────────────────────────────
+      document.getElementById("btn-done").onclick = () =>
+        ipcRenderer.send("quit-app");
+    </script>
+  </body>
+</html>
