@@ -2,6 +2,10 @@
   "name": "app-installer",
   "version": "1.0.0",
   "description": "GUI Installer for RestMan",
+  "author": {
+    "name": "RestMan",
+    "email": "restmansupport@paper.neuto.com"
+  },
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -11,7 +15,7 @@
     "dist:all": "electron-builder -mwl"
   },
   "build": {
-    "appId": "com.neuto.restman",
+    "appId": "com.restman.restman",
     "productName": "RestMan Installer",
     "directories": {
       "output": "dist"
@@ -48,6 +52,7 @@
     },
     "linux": {
       "icon": "assets/icon.png",
+      "maintainer": "RestMan <restmansupport@paper.neuto.com>",
       "target": [
         {
           "target": "AppImage",
