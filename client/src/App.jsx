@@ -119,6 +119,18 @@ const BASE_REAL_DARK_THEME = BASE_DARK_THEME.dark
 const ThemeCtx = createContext(BASE_DARK_THEME);
 const useT = () => useContext(ThemeCtx);
 
+const SIGNER_URL = import.meta.env.VITE_SIGNER_URL;
+
+async function fetchSignedUrl(fileKey) {
+  const res = await fetch(SIGNER_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fileKey }),
+  });
+  const data = await res.json();
+  return data.url;
+}
+
 /* ── CSS vars injection ─────────────────────────────────── */
 function ThemeInjector({ theme }) {
   useEffect(() => {
@@ -174,31 +186,40 @@ const PLATFORMS = {
     label: "Download for Windows",
     sub: "RestMan_Installer_Setup.exe · 64-bit",
     glyph: "⊞",
-    file: "/RestMan_Installer_Setup.exe",
+    fileKey: "releases/windows/RestMan_Installer_Setup.exe",
     variants: [
-      { label: "Windows 64-bit (.exe)", file: "/RestMan_Installer_Setup.exe" },
+      {
+        label: "Windows 64-bit (.exe)",
+        fileKey: "releases/windows/RestMan_Installer_Setup.exe",
+      },
     ],
   },
   mac: {
     label: "Download for macOS",
     sub: "Choose Intel or Apple Silicon",
     glyph: "",
-    file: "/RestMan_Installer.dmg",
+    fileKey: "releases/mac/RestMan_Installer.dmg",
     variants: [
       {
         label: "macOS Apple Silicon (.dmg)",
-        file: "/RestMan_Installer-arm64.dmg",
+        fileKey: "releases/mac/RestMan_Installer-arm64.dmg",
       },
-      { label: "macOS Intel (.dmg)", file: "/RestMan_Installer.dmg" },
+      {
+        label: "macOS Intel (.dmg)",
+        fileKey: "releases/mac/RestMan_Installer.dmg",
+      },
     ],
   },
   linux: {
     label: "Download for Linux",
     sub: "RestMan_Installer.AppImage",
     glyph: "🐧",
-    file: "/RestMan_Installer.AppImage",
+    fileKey: "releases/linux/RestMan_Installer.AppImage",
     variants: [
-      { label: "Linux (.AppImage)", file: "/RestMan_Installer.AppImage" },
+      {
+        label: "Linux (.AppImage)",
+        fileKey: "releases/linux/RestMan_Installer.AppImage",
+      },
     ],
   },
 };
@@ -660,6 +681,7 @@ function DownloadBtn({ os, size = "md", ghost = false }) {
   const ref = useRef();
   const isMobile = MOBILE_OS.has(os);
   const platform = PLATFORMS[os];
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     const h = (e) => {
@@ -708,30 +730,56 @@ function DownloadBtn({ os, size = "md", ghost = false }) {
   // Desktop — known platform with single variant: direct download link
   if (!isMobile && platform && platform.variants.length === 1) {
     return (
-      <motion.a
-        onClick={() => window.open(platform.file)}
-        download
-        style={baseStyle}
-        whileHover={{ scale: 1.02, ...hoverStyle }}
-        whileTap={{ scale: 0.97 }}
+      <motion.button
+        onClick={async () => {
+          setLoading(true);
+          try {
+            const url = await fetchSignedUrl(platform.fileKey);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = platform.fileKey.split("/").pop();
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+          } finally {
+            setLoading(false);
+          }
+        }}
+        disabled={loading}
+        style={{ ...baseStyle, outline: "none", opacity: loading ? 0.7 : 1 }}
+        whileHover={!loading ? { scale: 1.02, ...hoverStyle } : {}}
+        whileTap={!loading ? { scale: 0.97 } : {}}
       >
-        <Download size={sz.icon} />
+        {loading ? (
+          <motion.span
+            animate={{ rotate: 360 }}
+            transition={{ repeat: Infinity, duration: 0.8, ease: "linear" }}
+            style={{ display: "flex" }}
+          >
+            <RefreshCw size={sz.icon} />
+          </motion.span>
+        ) : (
+          <Download size={sz.icon} />
+        )}
         <span className="flex flex-col items-start leading-tight">
-          <span>{platform.label}</span>
-          {size !== "sm" && (
+          <span style={{ color: ghost ? T.textMuted : T.accentText }}>
+            {loading ? "Preparing download..." : platform.label}
+          </span>
+          {size !== "sm" && !loading && (
             <span
               style={{
                 fontSize: 10,
                 opacity: 0.5,
                 marginTop: 1,
                 fontFamily: "'Geist Mono', monospace",
+                color: ghost ? T.textFaint : T.accentText,
               }}
             >
               {platform.sub}
             </span>
           )}
         </span>
-      </motion.a>
+      </motion.button>
     );
   }
 
@@ -804,7 +852,7 @@ function DownloadBtn({ os, size = "md", ghost = false }) {
                 <DropItem
                   key={i}
                   label={v.label}
-                  file={v.file}
+                  fileKey={v.fileKey}
                   isLast={i === platform.variants.length - 1}
                 />
               ))}
@@ -815,7 +863,7 @@ function DownloadBtn({ os, size = "md", ghost = false }) {
                   <DropItem
                     key={`${i}-${j}`}
                     label={v.label}
-                    file={v.file}
+                    fileKey={v.fileKey}
                     isLast={
                       i === ALL_PLATFORMS_LIST.length - 1 &&
                       j === p.variants.length - 1
@@ -830,12 +878,29 @@ function DownloadBtn({ os, size = "md", ghost = false }) {
   );
 }
 
-function DropItem({ label, file, isLast }) {
+function DropItem({ label, fileKey, isLast }) {
   const T = useT();
+  const [loading, setLoading] = useState(false);
+
+  const handleClick = async () => {
+    setLoading(true);
+    try {
+      const url = await fetchSignedUrl(fileKey);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileKey.split("/").pop();
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <a
-      href={file}
-      download
+    <button
+      onClick={handleClick}
+      disabled={loading}
       style={{
         display: "flex",
         alignItems: "center",
@@ -843,17 +908,33 @@ function DropItem({ label, file, isLast }) {
         padding: "12px 16px",
         fontFamily: "'Geist', sans-serif",
         fontSize: 13,
-        color: T.text,
-        textDecoration: "none",
-        transition: "background 0.14s ease",
+        color: loading ? T.textFaint : T.text,
+        background: "transparent",
+        border: "none",
         borderBottom: isLast ? "none" : `1px solid ${T.border}`,
+        width: "100%",
+        textAlign: "left",
+        transition: "background 0.14s ease",
+        outline: "none",
       }}
-      onMouseEnter={(e) => (e.currentTarget.style.background = T.bgCard)}
+      onMouseEnter={(e) =>
+        !loading && (e.currentTarget.style.background = T.bgCard)
+      }
       onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
     >
-      <Download size={13} style={{ color: T.textMuted, flexShrink: 0 }} />
-      {label}
-    </a>
+      {loading ? (
+        <motion.span
+          animate={{ rotate: 360 }}
+          transition={{ repeat: Infinity, duration: 0.8, ease: "linear" }}
+          style={{ display: "flex" }}
+        >
+          <RefreshCw size={13} style={{ color: T.textMuted }} />
+        </motion.span>
+      ) : (
+        <Download size={13} style={{ color: T.textMuted, flexShrink: 0 }} />
+      )}
+      {loading ? "Preparing download..." : label}
+    </button>
   );
 }
 
