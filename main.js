@@ -531,15 +531,19 @@ async function checkForUpdates() {
     await run('npm install', BACKEND_DIR);
     const pkg = JSON.parse(require('fs').readFileSync(require('path').join(FRONTEND_DIR, 'package.json'), 'utf8'));
     if (pkg.scripts?.build) await run('npm run build', FRONTEND_DIR);
-    await run('pm2 reload ' + ECO_PATH + ' --update-env');
+    await run('pm2 reload \"' + ECO_PATH + '\" --update-env', APP_DIR);
     console.log('[updater] ✅ Update applied:', remote.slice(0,7));
   } catch (e) {
-    console.error('[updater] ❌ Error:', e.message);
+    console.error('[updater] ❌ Error:', e);
   }
 }
 
-checkForUpdates();
-setInterval(checkForUpdates, 30 * 60 * 1000); // every 30 minutes
+async function loop() {
+  await checkForUpdates();
+  setTimeout(loop, 30 * 60 * 1000); // every 30 minutes
+}
+
+loop();
 `;
       fs.writeFileSync(path.join(updaterDir, "updater.js"), updaterScript);
 
