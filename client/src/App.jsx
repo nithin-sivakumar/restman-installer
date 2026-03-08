@@ -615,8 +615,10 @@ function Navbar({ os, isDark, onToggleDark }) {
               {["Features", "Compare", "Testimonials"].map((l) => (
                 <a
                   key={l}
-                  href={`#${l.toLowerCase()}`}
-                  onClick={() => setMOpen(false)}
+                  onClick={() => {
+                    setMOpen(false);
+                    window.location.href = `#${l.toLowerCase()}`;
+                  }}
                   style={{
                     fontFamily: "'Geist', sans-serif",
                     fontSize: 15,
@@ -678,10 +680,10 @@ function LogoMark({ size = 22 }) {
 function DownloadBtn({ os, size = "md", ghost = false }) {
   const T = useT();
   const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
   const ref = useRef();
   const isMobile = MOBILE_OS.has(os);
   const platform = PLATFORMS[os];
-  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     const h = (e) => {
@@ -697,6 +699,9 @@ function DownloadBtn({ os, size = "md", ghost = false }) {
     sm: { px: 16, py: 8, fs: 13, icon: 13 },
   }[size];
 
+  const textColor = ghost ? T.textMuted : T.dark ? "black" : "white";
+  const subColor = ghost ? T.textFaint : T.dark ? "black" : "white";
+
   const baseStyle = {
     display: "inline-flex",
     alignItems: "center",
@@ -706,28 +711,54 @@ function DownloadBtn({ os, size = "md", ghost = false }) {
     fontFamily: "'Geist', sans-serif",
     fontWeight: 500,
     fontSize: sz.fs,
+    color: textColor,
     transition: "all 0.18s ease",
     border: "1px solid",
     textDecoration: "none",
     whiteSpace: "nowrap",
+    outline: "none",
     ...(ghost
-      ? {
-          background: "transparent",
-          borderColor: T.border,
-          color: T.textMuted,
-        }
-      : {
-          background: T.accent,
-          borderColor: T.accent,
-          color: T.dark ? "#000" : "#fff",
-        }),
+      ? { background: "transparent", borderColor: T.border }
+      : { background: T.accent, borderColor: T.accent }),
   };
 
   const hoverStyle = ghost
     ? { borderColor: T.borderHover, color: T.text }
     : { background: T.accentHover, borderColor: T.accentHover };
 
-  // Desktop — known platform with single variant: direct download link
+  const labelSpan = (label, sub) => (
+    <span className="flex flex-col items-start leading-tight">
+      <span style={{ color: textColor }}>{label}</span>
+      {size !== "sm" && sub && (
+        <span
+          style={{
+            fontSize: 10,
+            opacity: 0.5,
+            marginTop: 1,
+            fontFamily: "'Geist Mono', monospace",
+            color: subColor,
+          }}
+        >
+          {sub}
+        </span>
+      )}
+    </span>
+  );
+
+  const spinnerOrIcon = (icon) =>
+    loading ? (
+      <motion.span
+        animate={{ rotate: 360 }}
+        transition={{ repeat: Infinity, duration: 0.8, ease: "linear" }}
+        style={{ display: "flex", color: textColor }}
+      >
+        <RefreshCw size={sz.icon} />
+      </motion.span>
+    ) : (
+      <span style={{ display: "flex", color: textColor }}>{icon}</span>
+    );
+
+  // Desktop — single variant: direct signed download
   if (!isMobile && platform && platform.variants.length === 1) {
     return (
       <motion.button
@@ -746,39 +777,15 @@ function DownloadBtn({ os, size = "md", ghost = false }) {
           }
         }}
         disabled={loading}
-        style={{ ...baseStyle, outline: "none", opacity: loading ? 0.7 : 1 }}
+        style={{ ...baseStyle, opacity: loading ? 0.75 : 1 }}
         whileHover={!loading ? { scale: 1.02, ...hoverStyle } : {}}
         whileTap={!loading ? { scale: 0.97 } : {}}
       >
-        {loading ? (
-          <motion.span
-            animate={{ rotate: 360 }}
-            transition={{ repeat: Infinity, duration: 0.8, ease: "linear" }}
-            style={{ display: "flex" }}
-          >
-            <RefreshCw size={sz.icon} />
-          </motion.span>
-        ) : (
-          <Download size={sz.icon} />
+        {spinnerOrIcon(<Download size={sz.icon} />)}
+        {labelSpan(
+          loading ? "Preparing download..." : platform.label,
+          loading ? null : platform.sub,
         )}
-        <span className="flex flex-col items-start leading-tight">
-          <span style={{ color: ghost ? T.textMuted : T.accentText }}>
-            {loading ? "Preparing download..." : platform.label}
-          </span>
-          {size !== "sm" && !loading && (
-            <span
-              style={{
-                fontSize: 10,
-                opacity: 0.5,
-                marginTop: 1,
-                fontFamily: "'Geist Mono', monospace",
-                color: ghost ? T.textFaint : T.accentText,
-              }}
-            >
-              {platform.sub}
-            </span>
-          )}
-        </span>
       </motion.button>
     );
   }
@@ -788,36 +795,19 @@ function DownloadBtn({ os, size = "md", ghost = false }) {
     <div ref={ref} style={{ position: "relative", display: "inline-block" }}>
       <motion.button
         onClick={() => setOpen((o) => !o)}
-        style={{ ...baseStyle, outline: "none" }}
-        whileHover={{ scale: 1.02 }}
+        style={baseStyle}
+        whileHover={{ scale: 1.02, ...hoverStyle }}
         whileTap={{ scale: 0.97 }}
       >
-        <Download size={sz.icon} />
-        <span className="flex flex-col items-start leading-tight">
-          <span>
-            {isMobile
-              ? "Download RestMan"
-              : platform?.label || "Download RestMan"}
-          </span>
-          {size !== "sm" && (
-            <span
-              style={{
-                fontSize: 10,
-                opacity: 0.5,
-                marginTop: 1,
-                fontFamily: "'Geist Mono', monospace",
-              }}
-            >
-              {isMobile
-                ? "Choose platform"
-                : platform?.sub || "Choose platform"}
-            </span>
-          )}
-        </span>
+        {spinnerOrIcon(<Download size={sz.icon} />)}
+        {labelSpan(
+          isMobile ? "Download RestMan" : platform?.label || "Download RestMan",
+          isMobile ? "Choose platform" : platform?.sub || "Choose platform",
+        )}
         <motion.span
           animate={{ rotate: open ? 180 : 0 }}
           transition={{ duration: 0.2 }}
-          style={{ opacity: 0.5 }}
+          style={{ opacity: 0.5, display: "flex", color: textColor }}
         >
           <ChevronDown size={12} />
         </motion.span>
@@ -846,7 +836,6 @@ function DownloadBtn({ os, size = "md", ghost = false }) {
               boxShadow: `0 20px 60px ${T.dark ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.12)"}`,
             }}
           >
-            {/* Mac-specific: show only mac variants */}
             {os === "mac" &&
               platform?.variants.map((v, i) => (
                 <DropItem
@@ -856,7 +845,6 @@ function DownloadBtn({ os, size = "md", ghost = false }) {
                   isLast={i === platform.variants.length - 1}
                 />
               ))}
-            {/* Mobile or unknown: show all platforms */}
             {(isMobile || os === "unknown") &&
               ALL_PLATFORMS_LIST.map((p, i) =>
                 p.variants.map((v, j) => (
@@ -1156,7 +1144,12 @@ function Hero({ os }) {
         >
           <DownloadBtn os={os} size="md" />
           <motion.a
-            href="https://github.com/nithin-sivakumar/open-restman"
+            onClick={() =>
+              window.open(
+                "https://github.com/nithin-sivakumar/open-restman",
+                "_blank",
+              )
+            }
             target="_blank"
             rel="noopener"
             style={{
@@ -1186,7 +1179,7 @@ function Hero({ os }) {
             <ExternalLink size={11} style={{ opacity: 0.4 }} />
           </motion.a>
           <a
-            href="#features"
+            onClick={() => (window.location.href = "#features")}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -1578,6 +1571,7 @@ function FeatureViz({ id }) {
               initial={{ opacity: 0, x: -6 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: i * 0.06 }}
+              whileHover={{ x: 4 }}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -1671,6 +1665,7 @@ function FeatureViz({ id }) {
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.08 }}
+              whileHover={{ x: 4 }}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -1733,9 +1728,13 @@ function FeatureViz({ id }) {
       <Card style={{ overflow: "hidden" }}>
         <div style={{ display: "flex", borderBottom: `1px solid ${T.border}` }}>
           {envs.map((e, i) => (
-            <button
+            <motion.button
               key={e}
               onClick={() => setEnv(i)}
+              whileHover={{
+                backgroundColor: T.borderHover,
+                color: T.accentText,
+              }}
               style={{
                 flex: 1,
                 padding: "10px 0",
@@ -1751,7 +1750,7 @@ function FeatureViz({ id }) {
               }}
             >
               {e}
-            </button>
+            </motion.button>
           ))}
         </div>
         <div style={{ padding: 20 }}>
@@ -1793,7 +1792,7 @@ function FeatureViz({ id }) {
   if (id === "privacy")
     return (
       <Card style={{ padding: 20 }}>
-        <div
+        <motion.div
           style={{
             display: "flex",
             justifyContent: "center",
@@ -1816,7 +1815,7 @@ function FeatureViz({ id }) {
           >
             <Shield size={26} style={{ color: T.red }} />
           </motion.div>
-        </div>
+        </motion.div>
         <div
           style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}
         >
@@ -1828,8 +1827,9 @@ function FeatureViz({ id }) {
             "Air-gapped",
             "Offline-first",
           ].map((item) => (
-            <div
+            <motion.div
               key={item}
+              whileHover={{ color: T.text }}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -1845,7 +1845,7 @@ function FeatureViz({ id }) {
             >
               <Check size={10} style={{ color: T.green, flexShrink: 0 }} />
               {item}
-            </div>
+            </motion.div>
           ))}
         </div>
       </Card>
@@ -2005,20 +2005,20 @@ function Lightweight() {
     {
       label: "CPU idle",
       value: "~0.1%",
-      pct: 1,
+      pct: 3,
       color: T.blue,
       note: "Invisible at rest",
     },
     {
       label: "Boot time",
-      value: "<2s",
+      value: "<3s",
       pct: 12,
       color: T.accent,
       note: "Ready before you blink",
     },
     {
       label: "Disk",
-      value: "~300MB",
+      value: "~400MB",
       pct: 8,
       color: T.red,
       note: "Smaller than most apps",
@@ -2083,7 +2083,7 @@ function Lightweight() {
         <Reveal delay={0.1}>
           <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
             {metrics.map((m, i) => (
-              <div
+              <motion.div
                 key={m.label}
                 onMouseEnter={() => setHov(i)}
                 onMouseLeave={() => setHov(null)}
@@ -2103,7 +2103,7 @@ function Lightweight() {
                       style={{
                         fontFamily: "'Geist Mono', monospace",
                         fontSize: 12,
-                        color: T.textMuted,
+                        color: T.text,
                       }}
                     >
                       {m.label}
@@ -2117,7 +2117,7 @@ function Lightweight() {
                           style={{
                             fontFamily: "'Geist', sans-serif",
                             fontSize: 11,
-                            color: T.textFaint,
+                            color: T.textMuted,
                           }}
                         >
                           {m.note}
@@ -2160,16 +2160,16 @@ function Lightweight() {
                     }}
                   />
                 </div>
-              </div>
+              </motion.div>
             ))}
             <span
               style={{
                 fontFamily: "'Geist Mono', monospace",
-                fontSize: 9,
+                fontSize: 12,
                 color: T.textFaint,
               }}
             >
-              Measured on M1 MacBook Air · mid-load workday
+              Measured on mid-load workday
             </span>
           </div>
         </Reveal>
@@ -2340,17 +2340,18 @@ function Compare() {
                     color: i === 0 ? T.accent : T.textFaint,
                     fontWeight: i === 0 ? 500 : 400,
                   }}
+                  className="flex items-center justify-center gap-1"
                 >
                   {i === 0 && (
                     <div
                       style={{
                         fontFamily: "'Geist Mono', monospace",
-                        fontSize: 9,
-                        color: T.textFaint,
-                        marginBottom: 3,
+                        fontSize: 13,
+                        color: T.text,
+                        // marginBottom: 3,
                       }}
                     >
-                      free
+                      🎉
                     </div>
                   )}
                   {n}
@@ -2750,7 +2751,12 @@ function FinalCTA({ os }) {
         >
           <DownloadBtn os={os} size="lg" />
           <motion.a
-            href="https://github.com/nithin-sivakumar/open-restman"
+            onClick={() =>
+              window.open(
+                "https://github.com/nithin-sivakumar/open-restman",
+                "_blank",
+              )
+            }
             target="_blank"
             rel="noopener"
             style={{
@@ -2780,7 +2786,7 @@ function FinalCTA({ os }) {
           </motion.a>
         </div>
         <a
-          href="mailto:restmansupport@paper.neuto.in"
+          onClick={() => window.open("mailto:restmansupport@paper.neuto.in")}
           style={{
             display: "inline-flex",
             alignItems: "center",
@@ -2841,7 +2847,9 @@ function Footer() {
           }}
         >
           <a
-            href="https://github.com/nithin-sivakumar/open-restman"
+            onClick={() =>
+              window.open("https://github.com/nithin-sivakumar/open-restman")
+            }
             target="_blank"
             rel="noopener"
             style={{
@@ -2858,7 +2866,7 @@ function Footer() {
             <Github size={12} /> GitHub
           </a>
           <a
-            href="mailto:restmansupport@paper.neuto.in"
+            onClick={() => window.open("mailto:restmansupport@paper.neuto.in")}
             style={{
               display: "inline-flex",
               alignItems: "center",

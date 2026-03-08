@@ -9,3 +9,8 @@
     cursor: auto !important;
   }
 }
+
+*::selection {
+  background: var(--accent);
+  color: var(--accent-text);
+}
