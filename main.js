@@ -58,12 +58,39 @@ function send(event, data) {
     mainWindow.webContents.send(event, data);
 }
 
+function getCommandEnv(extraEnv = {}) {
+  const env = { ...process.env, ...extraEnv };
+
+  // Electron apps on macOS may not inherit a login shell PATH (Finder launch).
+  if (process.platform === "darwin") {
+    const normalizedPath = [
+      env.PATH,
+      "/opt/homebrew/bin",
+      "/usr/local/bin",
+      "/usr/bin",
+      "/bin",
+      "/usr/sbin",
+      "/sbin",
+    ]
+      .join(":")
+      .split(":")
+      .map((p) => p.trim())
+      .filter(Boolean);
+
+    env.PATH = [...new Set(normalizedPath)].join(":");
+  }
+
+  return env;
+}
+
 function run(cmd, opts = {}) {
   return new Promise((resolve, reject) => {
+    const { env: customEnv, ...restOpts } = opts;
     const child = exec(cmd, {
-      ...opts,
+      ...restOpts,
       maxBuffer: 50 * 1024 * 1024,
       windowsHide: true,
+      env: getCommandEnv(customEnv),
     });
     let out = "",
       err = "";
@@ -157,10 +184,12 @@ ipcMain.handle("install-deps", async (_, { missing, platform }) => {
   // Helper that streams output to the dep-install-log channel in real time
   function runStreamed(cmd, opts = {}) {
     return new Promise((resolve, reject) => {
+      const { env: customEnv, ...restOpts } = opts;
       const child = exec(cmd, {
-        ...opts,
+        ...restOpts,
         maxBuffer: 50 * 1024 * 1024,
         windowsHide: true,
+        env: getCommandEnv(customEnv),
       });
       let out = "",
         err = "";
@@ -522,7 +551,11 @@ setInterval(checkForUpdates, 30 * 60 * 1000); // every 30 minutes
         new Promise((resolve, reject) => {
           exec(
             "pm2 jlist",
-            { maxBuffer: 50 * 1024 * 1024, windowsHide: true },
+            {
+              maxBuffer: 50 * 1024 * 1024,
+              windowsHide: true,
+              env: getCommandEnv(),
+            },
             (err, stdout) => {
               if (err) return reject(err);
               resolve(JSON.parse(stdout));
@@ -546,7 +579,11 @@ setInterval(checkForUpdates, 30 * 60 * 1000); // every 30 minutes
         new Promise((resolve, reject) => {
           exec(
             "pm2 jlist",
-            { maxBuffer: 50 * 1024 * 1024, windowsHide: true },
+            {
+              maxBuffer: 50 * 1024 * 1024,
+              windowsHide: true,
+              env: getCommandEnv(),
+            },
             (err, stdout) => {
               if (err) return reject(err);
               resolve(JSON.parse(stdout));
@@ -595,6 +632,68 @@ setInterval(checkForUpdates, 30 * 60 * 1000); // every 30 minutes
 
             await run(taskCmd);
           }
+        } else if (platform === "darwin") {
+          // Prefer LaunchAgent on macOS to avoid interactive sudo requirements.
+          const uid = (await run("id -u")).trim();
+          const pm2Path = (await run("command -v pm2"))
+            .trim()
+            .split(/\r?\n/)[0];
+          const launchAgentsDir = path.join(
+            os.homedir(),
+            "Library",
+            "LaunchAgents",
+          );
+          const launchAgentLabel = "com.restman.pm2";
+          const launchAgentPath = path.join(
+            launchAgentsDir,
+            `${launchAgentLabel}.plist`,
+          );
+          const launchPath = getCommandEnv().PATH || process.env.PATH || "";
+
+          if (!fs.existsSync(launchAgentsDir)) {
+            fs.mkdirSync(launchAgentsDir, { recursive: true });
+          }
+
+          const plist = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${launchAgentLabel}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${pm2Path}</string>
+    <string>resurrect</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>${launchPath}</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>
+`;
+
+          fs.writeFileSync(launchAgentPath, plist);
+
+          await run("pm2 save");
+
+          try {
+            await run(`launchctl bootout gui/${uid} "${launchAgentPath}"`);
+          } catch {
+            // Ignore when not loaded yet.
+          }
+          await run(`launchctl bootstrap gui/${uid} "${launchAgentPath}"`);
+          await run(`launchctl enable gui/${uid}/${launchAgentLabel}`);
+
+          send("log", "✅ macOS autorun configured via LaunchAgent\n");
+          send("log", `ℹ️  LaunchAgent: ${launchAgentPath}\n`);
+          send(
+            "log",
+            "ℹ️  App will auto-start at login using `pm2 resurrect` (no sudo prompt needed).\n",
+          );
         } else {
           const startupOut = await run("pm2 startup");
           const match = startupOut.match(/sudo\s+.+/);
