@@ -1,4 +1,28 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+/**
+ * RestMan Landing Page V3
+ * ─────────────────────────────────────────────
+ * Theme is controlled via themes.json — set "active" to any key.
+ * No theme UI is exposed in the landing page itself.
+ *
+ * Dependencies (already in package.json assumed):
+ *   motion/react, lucide-react, prismjs
+ *
+ * Downloads served from public/:
+ *   RestMan_Installer.AppImage
+ *   RestMan_Installer.dmg
+ *   RestMan_Installer-arm64.dmg
+ *   RestMan_Installer_Setup.exe
+ */
+
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+  createContext,
+  useContext,
+} from "react";
 import {
   motion,
   useScroll,
@@ -22,515 +46,569 @@ import {
   Cpu,
   Moon,
   Sun,
-  ArrowUpRight,
+  ArrowRight,
   Terminal,
   Globe,
+  ExternalLink,
 } from "lucide-react";
 import Prism from "prismjs";
 import "prismjs/components/prism-json";
 import "prismjs/themes/prism-tomorrow.css";
 
-/* ── Fonts ────────────────────────────────────────────── */
+/* ── Load theme from themes.json ───────────────────────── */
+import themesConfig from "./themes.json";
+
+const DARK_THEME_KEYS = [
+  "obsidian",
+  "midnight",
+  "ember",
+  "forest",
+  "rose",
+  "slate",
+  "aurora",
+  "lava",
+  "carbon",
+  "ocean",
+  "neon",
+];
+
+const ACTIVE_THEME_KEY = (() => {
+  const last = localStorage.getItem("rm_last_theme");
+  const pool = last
+    ? DARK_THEME_KEYS.filter((k) => k !== last)
+    : DARK_THEME_KEYS;
+  const pick = pool[Math.floor(Math.random() * pool.length)];
+  localStorage.setItem("rm_last_theme", pick);
+  return pick;
+})();
+
+const BASE_DARK_THEME = themesConfig.themes[ACTIVE_THEME_KEY];
+// Opposite-mode counterpart used when the user toggles dark/light.
+// Picks the light/dark variant that best matches, falling back to safe defaults.
+const BASE_LIGHT_THEME = (() => {
+  // If active theme is already light, use it as-is
+  if (!BASE_DARK_THEME.dark) return BASE_DARK_THEME;
+
+  // Map dark themes to their closest light counterpart by accent family
+  const DARK_TO_LIGHT = {
+    obsidian: "lavender", // violet → lavender
+    midnight: "glacier", // cyan → glacier
+    ember: "sand", // orange → sand
+    forest: "mint", // green → mint
+    rose: "sakura", // pink → sakura
+    slate: "ghost", // indigo → ghost
+    aurora: "mint", // teal → mint
+    lava: "sand", // red → sand
+    carbon: "ivory", // gold → ivory
+    ocean: "glacier", // sky → glacier
+    neon: "mint", // lime → mint
+    noir: "ghost", // mono → ghost
+    dusk: "ivory", // amber → ivory
+    void: "ghost", // mono → ghost
+  };
+
+  const mappedKey = DARK_TO_LIGHT[ACTIVE_THEME_KEY];
+  return themesConfig.themes[mappedKey] || themesConfig.themes["ghost"];
+})();
+
+const BASE_REAL_DARK_THEME = BASE_DARK_THEME.dark
+  ? BASE_DARK_THEME
+  : themesConfig.themes[ACTIVE_THEME_KEY] || BASE_DARK_THEME;
+
+/* ── Theme context ──────────────────────────────────────── */
+const ThemeCtx = createContext(BASE_DARK_THEME);
+const useT = () => useContext(ThemeCtx);
+
+/* ── CSS vars injection ─────────────────────────────────── */
+function ThemeInjector({ theme }) {
+  useEffect(() => {
+    const root = document.documentElement;
+    Object.entries({
+      "--bg": theme.bg,
+      "--bg-alt": theme.bgAlt,
+      "--bg-card": theme.bgCard,
+      "--border": theme.border,
+      "--border-hover": theme.borderHover,
+      "--text": theme.text,
+      "--text-muted": theme.textMuted,
+      "--text-faint": theme.textFaint,
+      "--accent": theme.accent,
+      "--accent-hover": theme.accentHover,
+      "--accent-muted": theme.accentMuted,
+      "--accent-text": theme.accentText,
+      "--green": theme.green,
+      "--red": theme.red,
+      "--blue": theme.blue,
+      "--cursor-color": theme.cursor,
+      "--nav-bg": theme.navBg,
+    }).forEach(([k, v]) => root.style.setProperty(k, v));
+  }, [theme]);
+  return null;
+}
+
+/* ── Google Fonts ──────────────────────────────────────── */
 function Fonts() {
   return (
     <link
-      href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
   );
 }
 
-/* ── Font helpers ─────────────────────────────────────── */
-const SERIF = "font-['DM_Serif_Display',serif]";
-const SANS = "font-['DM_Sans',sans-serif]";
-const MONO = "font-['JetBrains_Mono',monospace]";
-
-/* ── OS detection ─────────────────────────────────────── */
+/* ── OS detection ──────────────────────────────────────── */
 function detectOS() {
   if (typeof window === "undefined") return "unknown";
-
   const ua = navigator.userAgent;
-
   if (/android/i.test(ua)) return "android";
   if (/iPad|iPhone|iPod/.test(ua)) return "ios";
   if (ua.includes("Win")) return "windows";
   if (ua.includes("Mac")) return "mac";
   if (ua.includes("Linux")) return "linux";
-
   return "unknown";
 }
 
-const DOWNLOAD_LINKS = {
-  windows: "/RestMan_Installer_Setup.exe",
-  mac: "/RestMan_Mac.dmg",
-  linux: "/RestMan_Linux.AppImage",
-};
-
+/* Platform download config */
 const PLATFORMS = {
   windows: {
     label: "Download for Windows",
-    sub: ".exe · 64-bit installer",
-    glyph: "🪟",
+    sub: "RestMan_Installer_Setup.exe · 64-bit",
+    glyph: "⊞",
+    file: "/RestMan_Installer_Setup.exe",
+    variants: [
+      { label: "Windows 64-bit (.exe)", file: "/RestMan_Installer_Setup.exe" },
+    ],
   },
   mac: {
     label: "Download for macOS",
-    sub: ".dmg · Universal (M1 + Intel)",
-    glyph: "🍎",
+    sub: "Choose Intel or Apple Silicon",
+    glyph: "",
+    file: "/RestMan_Installer.dmg",
+    variants: [
+      {
+        label: "macOS Apple Silicon (.dmg)",
+        file: "/RestMan_Installer-arm64.dmg",
+      },
+      { label: "macOS Intel (.dmg)", file: "/RestMan_Installer.dmg" },
+    ],
   },
-  linux: { label: "Download for Linux", sub: ".AppImage or .deb", glyph: "🐧" },
+  linux: {
+    label: "Download for Linux",
+    sub: "RestMan_Installer.AppImage",
+    glyph: "🐧",
+    file: "/RestMan_Installer.AppImage",
+    variants: [
+      { label: "Linux (.AppImage)", file: "/RestMan_Installer.AppImage" },
+    ],
+  },
 };
-const ALL_PLATFORMS = Object.entries(PLATFORMS).map(([os, d]) => ({
-  os,
-  ...d,
-}));
-const MOBILE_OS = ["android", "ios", "unknown"];
 
-/* ── Custom cursor ────────────────────────────────────── */
-function CustomCursor({ dark }) {
-  const x = useMotionValue(-100);
-  const y = useMotionValue(-100);
-  const sx = useSpring(x, { stiffness: 500, damping: 40 });
-  const sy = useSpring(y, { stiffness: 500, damping: 40 });
+const ALL_PLATFORMS_LIST = [
+  { os: "windows", ...PLATFORMS.windows },
+  { os: "mac", ...PLATFORMS.mac },
+  { os: "linux", ...PLATFORMS.linux },
+];
+
+const MOBILE_OS = new Set(["android", "ios"]);
+
+/* ── Custom cursor ─────────────────────────────────────── */
+function CustomCursor() {
+  const mx = useMotionValue(-100);
+  const my = useMotionValue(-100);
+  const sx = useSpring(mx, { stiffness: 800, damping: 50, mass: 0.4 });
+  const sy = useSpring(my, { stiffness: 800, damping: 50, mass: 0.4 });
+
   const [hovered, setHovered] = useState(false);
-  const [hidden, setHidden] = useState(false);
+  const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     const move = (e) => {
-      x.set(e.clientX);
-      y.set(e.clientY);
+      mx.set(e.clientX);
+      my.set(e.clientY);
+      setVisible(true);
     };
-    const enter = () => setHidden(false);
-    const leave = () => setHidden(true);
-    const over = (e) => {
-      const el = e.target.closest("a,button,[data-cursor='pointer']");
-      setHovered(!!el);
-    };
+    const leave = () => setVisible(false);
+    const over = (e) =>
+      setHovered(!!e.target.closest("a,button,[data-cursor]"));
+
     window.addEventListener("mousemove", move, { passive: true });
     window.addEventListener("mouseover", over, { passive: true });
-    document.documentElement.addEventListener("mouseleave", leave);
-    document.documentElement.addEventListener("mouseenter", enter);
+    document.addEventListener("mouseleave", leave);
+
     return () => {
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseover", over);
-      document.documentElement.removeEventListener("mouseleave", leave);
-      document.documentElement.removeEventListener("mouseenter", enter);
+      document.removeEventListener("mouseleave", leave);
     };
   }, []);
 
-  const ringColor = dark ? "border-white/40" : "border-zinc-900/50";
-  const dotColor = dark ? "bg-white" : "bg-zinc-900";
+  // Choose image based on hover state
+  const cursorSrc = hovered
+    ? "/pointer.png" // hover image
+    : "/cursor.png"; // default image
 
   return (
-    <>
-      {/* Outer ring */}
-      <motion.div
-        className={` fixed z-9999 rounded-full border ${ringColor} transition-colors duration-300`}
-        style={{
-          x: sx,
-          y: sy,
-          translateX: "-50%",
-          translateY: "-50%",
-          width: hovered ? 44 : 32,
-          height: hovered ? 44 : 32,
-          opacity: hidden ? 0 : 1,
-          transition: "width 0.2s ease, height 0.2s ease, opacity 0.2s ease",
-        }}
-      />
-      {/* Inner dot */}
-      <motion.div
-        className={` fixed z-9999 rounded-full ${dotColor} transition-colors duration-300`}
-        style={{
-          x: sx,
-          y: sy,
-          translateX: "-50%",
-          translateY: "-50%",
-          width: hovered ? 6 : 4,
-          height: hovered ? 6 : 4,
-          opacity: hidden ? 0 : 1,
-          transition: "width 0.15s ease, height 0.15s ease, opacity 0.2s ease",
-        }}
-      />
-    </>
+    <motion.img
+      src={cursorSrc}
+      alt="cursor"
+      className="fixed z-9999 pointer-events-none hidden md:block"
+      style={{
+        x: sx,
+        y: sy,
+        opacity: visible ? 1 : 0,
+
+        // ⭐ VERY IMPORTANT — pointer hotspot correction
+        translateX: "0px",
+        translateY: "0px",
+
+        width: 20,
+        height: 20,
+      }}
+    />
   );
 }
 
-/* ── Typewriter ───────────────────────────────────────── */
-function Typewriter({ phrases, className }) {
-  const [pi, setPi] = useState(0);
-  const [text, setText] = useState("");
-  const [del, setDel] = useState(false);
-  useEffect(() => {
-    const target = phrases[pi];
-    if (!del && text === target) {
-      const t = setTimeout(() => setDel(true), 2400);
-      return () => clearTimeout(t);
-    }
-    if (del && text === "") {
-      setDel(false);
-      setPi((i) => (i + 1) % phrases.length);
-      return;
-    }
-    const t = setTimeout(
-      () => setText(del ? text.slice(0, -1) : target.slice(0, text.length + 1)),
-      del ? 32 : 68,
-    );
-    return () => clearTimeout(t);
-  }, [text, del, pi, phrases]);
-
+/* ── Smooth section entrance ───────────────────────────── */
+function Reveal({ children, delay = 0, className = "" }) {
+  const ref = useRef();
+  const inView = useInView(ref, { once: true, margin: "-60px" });
   return (
-    <span className={className}>
-      {text}
-      <motion.span
-        className="inline-block w-0.5 h-[1em] bg-orange-400 ml-0.5 align-middle"
-        animate={{ opacity: [1, 0] }}
-        transition={{ repeat: Infinity, duration: 0.7 }}
-      />
-    </span>
+    <motion.div
+      ref={ref}
+      initial={{ opacity: 0, y: 22 }}
+      animate={inView ? { opacity: 1, y: 0 } : {}}
+      transition={{ duration: 0.55, delay, ease: [0.16, 1, 0.3, 1] }}
+      className={className}
+    >
+      {children}
+    </motion.div>
   );
 }
 
-/* ── Animated counter ─────────────────────────────────── */
+/* ── Animated counter ──────────────────────────────────── */
 function Counter({ to, suffix = "", decimals = 0 }) {
-  const ref = useRef(null);
+  const ref = useRef();
   const inView = useInView(ref, { once: true, margin: "-40px" });
-
-  const [value, setValue] = useState(0);
-
+  const [val, setVal] = useState(0);
   useEffect(() => {
     if (!inView) return;
-
-    let startTime = null;
-
-    const tick = (time) => {
-      if (!startTime) startTime = time;
-
-      const progress = Math.min((time - startTime) / 1800, 1);
-      const eased = 1 - Math.pow(1 - progress, 3);
-
-      setValue(eased * to);
-
-      if (progress < 1) requestAnimationFrame(tick);
+    let start = null;
+    const tick = (t) => {
+      if (!start) start = t;
+      const p = Math.min((t - start) / 1400, 1);
+      const e = 1 - Math.pow(1 - p, 3);
+      setVal(e * to);
+      if (p < 1) requestAnimationFrame(tick);
     };
-
     requestAnimationFrame(tick);
   }, [inView, to]);
-
-  const display = decimals
-    ? value.toFixed(decimals)
-    : Math.floor(value).toString();
-
   return (
     <span ref={ref}>
-      {display}
+      {decimals ? val.toFixed(decimals) : Math.floor(val)}
       {suffix}
     </span>
   );
 }
 
-function GithubBtn({ os, dark, size = "lg", ghost = false }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef();
-  const isMobile = MOBILE_OS.includes(os);
+/* ── Typewriter ────────────────────────────────────────── */
+function Typewriter({ phrases }) {
+  const T = useT();
+  const [pi, setPi] = useState(0);
+  const [txt, setTxt] = useState("");
+  const [del, setDel] = useState(false);
   useEffect(() => {
-    const h = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, []);
-
-  const sz = {
-    lg: `px-7 py-4 text-[15px] gap-3`,
-    md: `px-5 py-3.5 text-[14px] gap-2.5`,
-    sm: `px-4 py-2.5 text-[13px] gap-2`,
-  }[size];
-
-  const base = `cursor-pointer inline-flex items-center rounded-2xl font-medium select-none transition-all duration-200 ${SANS} ${sz}`;
-  const solid = `${base} bg-orange-400 text-zinc-950 hover:bg-orange-300 active:scale-[0.97]`;
-
-  const outline = `${base} border backdrop-blur-sm active:scale-[0.97] ${
-    dark
-      ? "border-white/15 text-white/70 hover:text-white hover:border-white/30"
-      : "border-black/15 text-zinc-700 hover:text-black hover:border-black/30"
-  }`;
-  const cls = ghost ? outline : solid;
-
-  const platform = {
-    label: "GitHub",
-    sub: "nithin-sivakumar",
-    glyph: "💻",
-  };
-
-  if (!isMobile && platform) {
-    return (
-      <motion.a
-        href="https://github.com/nithin-sivakumar/open-restman"
-        target="_blank"
-        className={cls}
-        whileHover={{ scale: 1.02 }}
-        whileTap={{ scale: 0.97 }}
-      >
-        <Github size={size === "lg" ? 18 : 14} className="shrink-0" />
-        <span className="flex flex-col items-start leading-tight">
-          <span>{platform.label}</span>
-          {size !== "sm" && (
-            <span
-              className={`text-[11px] font-normal opacity-50 mt-0.5 ${MONO}`}
-            >
-              {platform.sub}
-            </span>
-          )}
-        </span>
-      </motion.a>
+    const target = phrases[pi];
+    if (!del && txt === target) {
+      const t = setTimeout(() => setDel(true), 2200);
+      return () => clearTimeout(t);
+    }
+    if (del && txt === "") {
+      setDel(false);
+      setPi((i) => (i + 1) % phrases.length);
+      return;
+    }
+    const t = setTimeout(
+      () => setTxt(del ? txt.slice(0, -1) : target.slice(0, txt.length + 1)),
+      del ? 28 : 60,
     );
-  }
-
+    return () => clearTimeout(t);
+  }, [txt, del, pi, phrases]);
   return (
-    <motion.a
-      href="https://github.com/nithin-sivakumar/open-restman"
-      target="_blank"
-      rel="noopener"
-      className={cls}
-      whileHover={{ scale: 1.02 }}
-      whileTap={{ scale: 0.97 }}
+    <span
+      style={{
+        color: T.text,
+        fontFamily: "'Geist Mono', monospace",
+        fontSize: "13px",
+      }}
     >
-      <Github size={size === "lg" ? 18 : 14} className="shrink-0" />
-      <span className="flex flex-col items-start leading-tight">
-        <span>GitHub</span>
-        {size !== "sm" && (
-          <span className={`text-[11px] font-normal opacity-50 mt-0.5 ${MONO}`}>
-            nithin-sivakumar
-          </span>
-        )}
-      </span>
-    </motion.a>
+      {txt}
+      <motion.span
+        style={{
+          display: "inline-block",
+          width: 2,
+          height: "1em",
+          background: T.accent,
+          marginLeft: 2,
+          verticalAlign: "middle",
+        }}
+        // animate={{ opacity: [1, 1] }}
+        transition={{ repeat: Infinity, duration: 0.6 }}
+      />
+    </span>
   );
 }
 
-/* ── Download button ──────────────────────────────────── */
-function DownloadBtn({ os, dark, size = "lg", ghost = false }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef();
-  const isMobile = MOBILE_OS.includes(os);
-  useEffect(() => {
-    const h = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, []);
-
-  const sz = {
-    lg: `px-7 py-4 text-[15px] gap-3`,
-    md: `px-5 py-3.5 text-[14px] gap-2.5`,
-    sm: `px-4 py-2.5 text-[13px] gap-2`,
-  }[size];
-
-  const base = `cursor-pointer inline-flex items-center rounded-2xl font-medium select-none transition-all duration-200 ${SANS} ${sz}`;
-  const solid = `${base} bg-orange-400 text-zinc-950 hover:bg-orange-300 active:scale-[0.97]`;
-
-  const outline = `${base} border backdrop-blur-sm active:scale-[0.97] ${
-    dark
-      ? "border-white/15 text-white/70 hover:text-white hover:border-white/30"
-      : "border-black/15 text-zinc-700 hover:text-black hover:border-black/30"
-  }`;
-  const cls = ghost ? outline : solid;
-
-  const platform = PLATFORMS[os];
-
-  if (!isMobile && platform) {
-    return (
-      <motion.a
-        href={DOWNLOAD_LINKS[os] || "/RestMan_Installer_Setup.exe"}
-        className={cls}
-        whileHover={{ scale: 1.02 }}
-        whileTap={{ scale: 0.97 }}
-      >
-        <Download size={size === "lg" ? 18 : 14} className="shrink-0" />
-        <span className="flex flex-col items-start leading-tight">
-          <span>{platform.label}</span>
-          {size !== "sm" && (
-            <span
-              className={`text-[11px] font-normal opacity-50 mt-0.5 ${MONO}`}
-            >
-              {platform.sub}
-            </span>
-          )}
-        </span>
-      </motion.a>
-    );
-  }
-
-  return (
-    <div className="relative inline-block" ref={ref}>
-      <motion.button
-        onClick={() => setOpen((o) => !o)}
-        className={`${cls} ${open ? "ring-1 ring-orange-400/40" : ""}`}
-        whileHover={{ scale: 1.02 }}
-        whileTap={{ scale: 0.97 }}
-      >
-        <Download size={size === "lg" ? 18 : 14} className="shrink-0" />
-        <span className="flex flex-col items-start leading-tight">
-          <span>Download RestMan</span>
-          {size !== "sm" && (
-            <span
-              className={`text-[11px] font-normal opacity-50 mt-0.5 ${MONO}`}
-            >
-              Choose your platform
-            </span>
-          )}
-        </span>
-        <motion.span
-          animate={{ rotate: open ? 180 : 0 }}
-          transition={{ duration: 0.2 }}
-          className="ml-1 opacity-40"
-        >
-          <ChevronDown size={13} />
-        </motion.span>
-      </motion.button>
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -6, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -6, scale: 0.97 }}
-            transition={{ duration: 0.15 }}
-            className={`absolute top-full left-0 mt-2 z-50 min-w-64 rounded-2xl overflow-hidden border backdrop-blur-2xl shadow-xl ${
-              dark
-                ? "border-white/10 bg-black/80"
-                : "border-black/10 bg-white/90"
-            }`}
-          >
-            {ALL_PLATFORMS.map((d, i) => (
-              <a
-                key={d.os}
-                href="#"
-                onClick={() => setOpen(false)}
-                className={`cursor-pointer flex items-center gap-3 px-5 py-4 transition-colors ${
-                  dark ? "hover:bg-white/5" : "hover:bg-black/5"
-                } ${i < ALL_PLATFORMS.length - 1 ? (dark ? "border-b border-white/6" : "border-b border-black/6") : ""}`}
-              >
-                <span className="text-xl w-7 text-center shrink-0">
-                  {d.glyph}
-                </span>
-                <span className="flex flex-col">
-                  <span
-                    className={`text-[13px] font-medium text-white/90 ${SANS}`}
-                  >
-                    {d.label}
-                  </span>
-                  <span className={`text-[10px] text-white/35 mt-0.5 ${MONO}`}>
-                    {d.sub}
-                  </span>
-                </span>
-              </a>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-/* ── Navbar ───────────────────────────────────────────── */
-function Navbar({ dark, onToggle, os }) {
+/* ── Navbar ────────────────────────────────────────────── */
+function Navbar({ os, isDark, onToggleDark }) {
+  const T = useT();
   const [scrolled, setScrolled] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [mOpen, setMOpen] = useState(false);
+
   useEffect(() => {
-    const h = () => setScrolled(window.scrollY > 60);
+    const h = () => setScrolled(window.scrollY > 50);
     window.addEventListener("scroll", h, { passive: true });
     return () => window.removeEventListener("scroll", h);
   }, []);
 
-  const navBg = scrolled
-    ? dark
-      ? "bg-[#0a0a0a]/80 backdrop-blur-2xl border-b border-white/6"
-      : "bg-white/80 backdrop-blur-2xl border-b border-black/6"
-    : "bg-transparent";
-
   return (
     <motion.nav
-      initial={{ y: 4, opacity: 0 }}
+      initial={{ y: -8, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
-      transition={{ duration: 0.1, ease: [0.16, 1, 0.3, 1] }}
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${navBg}`}
+      transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 50,
+        background: scrolled ? T.navBg : "transparent",
+        backdropFilter: scrolled ? "blur(20px)" : "none",
+        borderBottom: scrolled ? `1px solid ${T.border}` : "none",
+        transition:
+          "background 0.4s ease, backdrop-filter 0.4s ease, border-color 0.4s ease",
+      }}
     >
-      <div className="max-w-7xl mx-auto px-8 h-16 flex items-center justify-between">
-        {/* Logo */}
+      {/* ── Main bar: left logo | center links (absolute) | right actions ── */}
+      <div
+        style={{
+          maxWidth: 1280,
+          margin: "0 auto",
+          padding: "0 24px",
+          height: 64,
+          display: "flex",
+          alignItems: "center",
+          position: "relative",
+        }}
+      >
+        {/* Left: Logo */}
         <div
-          className={`flex items-center gap-2 text-[17px] font-medium ${SANS} ${dark ? "text-white" : "text-zinc-900"}`}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            fontFamily: "'Geist', sans-serif",
+            fontWeight: 500,
+            fontSize: 16,
+            color: T.text,
+            flexShrink: 0,
+          }}
         >
-          <div className="w-6 h-6 grid grid-cols-2 grid-rows-2 gap-0.5">
-            <div className="rounded-xs bg-orange-400" />
-            <div className="rounded-xs bg-orange-400/50" />
-            <div className="rounded-xs bg-orange-400/50" />
-            <div className="rounded-xs bg-orange-400/20" />
-          </div>
+          <LogoMark />
           RestMan
         </div>
 
-        {/* Links */}
-        <div className="hidden md:flex items-center gap-1">
+        {/* Center: nav links — absolutely centered so right-side width doesn't affect position */}
+        <div
+          className="hidden md:flex"
+          style={{
+            position: "absolute",
+            left: "50%",
+            transform: "translateX(-50%)",
+            // display: "flex",
+            alignItems: "center",
+            gap: 2,
+          }}
+        >
           {["Features", "Compare", "Testimonials"].map((l) => (
             <a
               key={l}
-              href={`#${l.toLowerCase()}`}
-              className={`cursor-pointer px-4 py-2 rounded-xl text-[13px] font-medium transition-all ${SANS} ${dark ? "text-white/40 hover:text-white/90 hover:bg-white/5" : "text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100"}`}
+              onClick={() => {
+                window.location.href = `#${l.toLowerCase()}`;
+              }}
+              style={{
+                fontFamily: "'Geist', sans-serif",
+                fontSize: 13,
+                color: T.textMuted,
+                padding: "6px 14px",
+                borderRadius: 10,
+                transition: "all 0.18s ease",
+                textDecoration: "none",
+                whiteSpace: "nowrap",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = T.text;
+                e.currentTarget.style.background = T.bgCard;
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = T.textMuted;
+                e.currentTarget.style.background = "transparent";
+              }}
             >
               {l}
             </a>
           ))}
         </div>
 
-        <div className="flex items-center gap-3">
-          <button
-            onClick={onToggle}
-            className={`cursor-pointer w-9 h-9 rounded-xl flex items-center justify-center transition-colors ${dark ? "text-white/40 hover:text-white/80 hover:bg-white/5" : "text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100"}`}
+        {/* Right: dark/light toggle + download */}
+        <div
+          style={{
+            marginLeft: "auto",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            flexShrink: 0,
+          }}
+        >
+          {/* Dark/light toggle */}
+          <motion.button
+            onClick={onToggleDark}
+            whileHover={{ scale: 1.08 }}
+            whileTap={{ scale: 0.92 }}
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: 10,
+              border: `1px solid ${T.border}`,
+              background: "transparent",
+              color: T.textMuted,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              transition: "border-color 0.18s, color 0.18s",
+              outline: "none",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = T.borderHover;
+              e.currentTarget.style.color = T.text;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = T.border;
+              e.currentTarget.style.color = T.textMuted;
+            }}
+            title={isDark ? "Switch to light mode" : "Switch to dark mode"}
           >
-            {dark ? <Sun size={15} /> : <Moon size={15} />}
-          </button>
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.span
+                key={isDark ? "moon" : "sun"}
+                initial={{ rotate: -30, opacity: 0, scale: 0.7 }}
+                animate={{ rotate: 0, opacity: 1, scale: 1 }}
+                exit={{ rotate: 30, opacity: 0, scale: 0.7 }}
+                transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                {isDark ? <Sun size={14} /> : <Moon size={14} />}
+              </motion.span>
+            </AnimatePresence>
+          </motion.button>
+
           <div className="hidden md:block">
-            <DownloadBtn os={os} size="sm" dark={dark} ghost={true} />
+            <DownloadBtn os={os} size="sm" ghost />
           </div>
+
+          {/* Mobile hamburger */}
           <button
-            onClick={() => setMobileOpen((o) => !o)}
-            className={`cursor-pointer md:hidden flex flex-col gap-1.5 p-2 ${dark ? "text-white/50" : "text-zinc-600"}`}
+            onClick={() => setMOpen((o) => !o)}
+            className="md:hidden p-2"
+            style={{
+              color: T.textMuted,
+              background: "transparent",
+              border: "none",
+            }}
           >
-            <span
-              className={`block w-5 h-px ${dark ? "bg-white/50" : "bg-zinc-600"}`}
-            />
-            <span
-              className={`block w-5 h-px ${dark ? "bg-white/50" : "bg-zinc-600"}`}
-            />
-            <span
-              className={`block w-3 h-px ${dark ? "bg-white/50" : "bg-zinc-600"}`}
-            />
+            <div
+              style={{
+                width: 20,
+                display: "flex",
+                flexDirection: "column",
+                gap: 4,
+              }}
+            >
+              <span
+                style={{
+                  height: 1.5,
+                  background: T.textMuted,
+                  borderRadius: 2,
+                  display: "block",
+                  transition: "all 0.2s",
+                  transform: mOpen ? "translateY(5.5px) rotate(45deg)" : "none",
+                }}
+              />
+              <span
+                style={{
+                  height: 1.5,
+                  background: T.textMuted,
+                  borderRadius: 2,
+                  display: "block",
+                  opacity: mOpen ? 0 : 1,
+                  transition: "all 0.2s",
+                }}
+              />
+              <span
+                style={{
+                  height: 1.5,
+                  background: T.textMuted,
+                  borderRadius: 2,
+                  display: "block",
+                  width: mOpen ? "100%" : "65%",
+                  transition: "all 0.2s",
+                  transform: mOpen
+                    ? "translateY(-5.5px) rotate(-45deg)"
+                    : "none",
+                }}
+              />
+            </div>
           </button>
         </div>
       </div>
+
+      {/* Mobile menu */}
       <AnimatePresence>
-        {mobileOpen && (
+        {mOpen && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.22 }}
-            className={`overflow-hidden border-t ${dark ? "border-white/6 bg-[#0c0c0c]/95 backdrop-blur-2xl" : "border-zinc-100 bg-white/95"}`}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            style={{
+              overflow: "hidden",
+              borderTop: `1px solid ${T.border}`,
+              background: T.navBg,
+              backdropFilter: "blur(20px)",
+            }}
           >
-            <div className="px-8 py-5 flex flex-col gap-1">
+            <div className="px-6 py-4 flex flex-col gap-1">
               {["Features", "Compare", "Testimonials"].map((l) => (
                 <a
                   key={l}
                   href={`#${l.toLowerCase()}`}
-                  onClick={() => setMobileOpen(false)}
-                  className={`cursor-pointer px-4 py-3 rounded-xl text-[15px] font-medium transition-colors ${SANS} ${dark ? "text-white/60 hover:text-white hover:bg-white/5" : "text-zinc-600 hover:bg-zinc-100"}`}
+                  onClick={() => setMOpen(false)}
+                  style={{
+                    fontFamily: "'Geist', sans-serif",
+                    fontSize: 15,
+                    color: T.textMuted,
+                    padding: "10px 14px",
+                    borderRadius: 10,
+                    display: "block",
+                    textDecoration: "none",
+                  }}
                 >
                   {l}
                 </a>
               ))}
-              {/* <div className="pt-3">
-                <DownloadBtn os={os} size="md" />
-              </div> */}
             </div>
           </motion.div>
         )}
@@ -539,98 +617,397 @@ function Navbar({ dark, onToggle, os }) {
   );
 }
 
-/* ── Glass card ───────────────────────────────────────── */
-function GlassCard({ children, className = "", dark }) {
+function LogoMark({ size = 22 }) {
+  const T = useT();
+  return (
+    <svg width={size} height={size} viewBox="0 0 22 22" fill="none">
+      <rect x="0" y="0" width="10" height="10" rx="2.5" fill={T.accent} />
+      <rect
+        x="12"
+        y="0"
+        width="10"
+        height="10"
+        rx="2.5"
+        fill={T.accent}
+        opacity="0.45"
+      />
+      <rect
+        x="0"
+        y="12"
+        width="10"
+        height="10"
+        rx="2.5"
+        fill={T.accent}
+        opacity="0.25"
+      />
+      <rect
+        x="12"
+        y="12"
+        width="10"
+        height="10"
+        rx="2.5"
+        fill={T.accent}
+        opacity="0.1"
+      />
+    </svg>
+  );
+}
+
+/* ── Download Button ───────────────────────────────────── */
+function DownloadBtn({ os, size = "md", ghost = false }) {
+  const T = useT();
+  const [open, setOpen] = useState(false);
+  const ref = useRef();
+  const isMobile = MOBILE_OS.has(os);
+  const platform = PLATFORMS[os];
+
+  useEffect(() => {
+    const h = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  const sz = {
+    lg: { px: 28, py: 14, fs: 15, icon: 17 },
+    md: { px: 22, py: 11, fs: 14, icon: 15 },
+    sm: { px: 16, py: 8, fs: 13, icon: 13 },
+  }[size];
+
+  const baseStyle = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: sz.icon - 2,
+    padding: `${sz.py}px ${sz.px}px`,
+    borderRadius: 14,
+    fontFamily: "'Geist', sans-serif",
+    fontWeight: 500,
+    fontSize: sz.fs,
+    transition: "all 0.18s ease",
+    border: "1px solid",
+    textDecoration: "none",
+    whiteSpace: "nowrap",
+    ...(ghost
+      ? {
+          background: "transparent",
+          borderColor: T.border,
+          color: T.textMuted,
+        }
+      : {
+          background: T.accent,
+          borderColor: T.accent,
+          color: T.dark ? "#000" : "#fff",
+        }),
+  };
+
+  const hoverStyle = ghost
+    ? { borderColor: T.borderHover, color: T.text }
+    : { background: T.accentHover, borderColor: T.accentHover };
+
+  // Desktop — known platform with single variant: direct download link
+  if (!isMobile && platform && platform.variants.length === 1) {
+    return (
+      <motion.a
+        onClick={() => window.open(platform.file)}
+        download
+        style={baseStyle}
+        whileHover={{ scale: 1.02, ...hoverStyle }}
+        whileTap={{ scale: 0.97 }}
+      >
+        <Download size={sz.icon} />
+        <span className="flex flex-col items-start leading-tight">
+          <span>{platform.label}</span>
+          {size !== "sm" && (
+            <span
+              style={{
+                fontSize: 10,
+                opacity: 0.5,
+                marginTop: 1,
+                fontFamily: "'Geist Mono', monospace",
+              }}
+            >
+              {platform.sub}
+            </span>
+          )}
+        </span>
+      </motion.a>
+    );
+  }
+
+  // Mac (2 variants) or mobile/unknown: dropdown
+  return (
+    <div ref={ref} style={{ position: "relative", display: "inline-block" }}>
+      <motion.button
+        onClick={() => setOpen((o) => !o)}
+        style={{ ...baseStyle, outline: "none" }}
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.97 }}
+      >
+        <Download size={sz.icon} />
+        <span className="flex flex-col items-start leading-tight">
+          <span>
+            {isMobile
+              ? "Download RestMan"
+              : platform?.label || "Download RestMan"}
+          </span>
+          {size !== "sm" && (
+            <span
+              style={{
+                fontSize: 10,
+                opacity: 0.5,
+                marginTop: 1,
+                fontFamily: "'Geist Mono', monospace",
+              }}
+            >
+              {isMobile
+                ? "Choose platform"
+                : platform?.sub || "Choose platform"}
+            </span>
+          )}
+        </span>
+        <motion.span
+          animate={{ rotate: open ? 180 : 0 }}
+          transition={{ duration: 0.2 }}
+          style={{ opacity: 0.5 }}
+        >
+          <ChevronDown size={12} />
+        </motion.span>
+      </motion.button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: -6, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.97 }}
+            transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
+            style={{
+              position: "absolute",
+              top: "calc(100% + 8px)",
+              left: 0,
+              zIndex: 100,
+              minWidth: 260,
+              borderRadius: 14,
+              overflow: "hidden",
+              border: `1px solid ${T.border}`,
+              background: T.dark
+                ? `color-mix(in srgb, ${T.bg} 90%, transparent)`
+                : `color-mix(in srgb, ${T.bg} 95%, transparent)`,
+              backdropFilter: "blur(24px)",
+              boxShadow: `0 20px 60px ${T.dark ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.12)"}`,
+            }}
+          >
+            {/* Mac-specific: show only mac variants */}
+            {os === "mac" &&
+              platform?.variants.map((v, i) => (
+                <DropItem
+                  key={i}
+                  label={v.label}
+                  file={v.file}
+                  isLast={i === platform.variants.length - 1}
+                />
+              ))}
+            {/* Mobile or unknown: show all platforms */}
+            {(isMobile || os === "unknown") &&
+              ALL_PLATFORMS_LIST.map((p, i) =>
+                p.variants.map((v, j) => (
+                  <DropItem
+                    key={`${i}-${j}`}
+                    label={v.label}
+                    file={v.file}
+                    isLast={
+                      i === ALL_PLATFORMS_LIST.length - 1 &&
+                      j === p.variants.length - 1
+                    }
+                  />
+                )),
+              )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function DropItem({ label, file, isLast }) {
+  const T = useT();
+  return (
+    <a
+      href={file}
+      download
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "12px 16px",
+        fontFamily: "'Geist', sans-serif",
+        fontSize: 13,
+        color: T.text,
+        textDecoration: "none",
+        transition: "background 0.14s ease",
+        borderBottom: isLast ? "none" : `1px solid ${T.border}`,
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = T.bgCard)}
+      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+    >
+      <Download size={13} style={{ color: T.textMuted, flexShrink: 0 }} />
+      {label}
+    </a>
+  );
+}
+
+/* ── Card ──────────────────────────────────────────────── */
+function Card({ children, className = "", style = {}, hover = true }) {
+  const T = useT();
+  const [hov, setHov] = useState(false);
   return (
     <div
-      className={`rounded-3xl border backdrop-blur-xl transition-all duration-300 ${
-        dark
-          ? "bg-white/3 border-white/8 hover:border-white/[0.14]"
-          : "bg-black/2 border-black/[0.07] hover:border-black/12"
-      } ${className}`}
+      className={className}
+      onMouseEnter={() => hover && setHov(true)}
+      onMouseLeave={() => hover && setHov(false)}
+      style={{
+        borderRadius: 20,
+        border: `1px solid ${hov ? T.borderHover : T.border}`,
+        background: T.bgCard,
+        backdropFilter: "blur(16px)",
+        transition: "border-color 0.22s ease",
+        ...style,
+      }}
     >
       {children}
     </div>
   );
 }
 
-/* ── Hero ─────────────────────────────────────────────── */
-function Hero({ os, dark }) {
+/* ══════════════════════════════════════════════════════
+   HERO
+══════════════════════════════════════════════════════ */
+function Hero({ os }) {
+  const T = useT();
   const ref = useRef();
   const { scrollYProgress } = useScroll({
     target: ref,
     offset: ["start start", "end start"],
   });
-  const heroY = useTransform(scrollYProgress, [0, 1], [0, 140]);
-  const heroOpacity = useTransform(scrollYProgress, [0.25, 1], [1, 0]);
+  const y = useTransform(scrollYProgress, [0, 1], [0, 120]);
+  const op = useTransform(scrollYProgress, [0.3, 0.85], [1, 0]);
 
   return (
     <section
       ref={ref}
-      className={`relative min-h-screen flex items-center justify-center overflow-hidden ${dark ? "bg-[#0a0a0a]" : "bg-transparent"}`}
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        position: "relative",
+        overflow: "hidden",
+        background: T.bg,
+      }}
     >
-      {/* Subtle grid */}
+      {/* Ambient gradient */}
       <div
-        className={`absolute inset-0  ${dark ? "opacity-[0.05]" : "opacity-[0.05]"}`}
         style={{
-          backgroundImage: `linear-gradient(${dark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.5)"} 1px, transparent 1px), linear-gradient(90deg, ${dark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.5)"} 1px, transparent 1px)`,
-          backgroundSize: "80px 80px",
+          position: "absolute",
+          inset: 0,
+          background: T.gradientHero,
+          pointerEvents: "none",
         }}
       />
 
-      {/* Single centered ambient light — very subtle */}
+      {/* Subtle grid */}
       <div
-        className={`absolute top-0 left-1/2 -translate-x-1/2 w-150 h-100 rounded-full  ${dark ? "opacity-[0.12]" : "opacity-[0.08]"}`}
         style={{
-          background: "radial-gradient(ellipse, #f59e0b 0%, transparent 70%)",
-          filter: "blur(80px)",
+          position: "absolute",
+          inset: 0,
+          pointerEvents: "none",
+          opacity: 0.035,
+          backgroundImage: `linear-gradient(${T.text} 1px, transparent 1px), linear-gradient(90deg, ${T.text} 1px, transparent 1px)`,
+          backgroundSize: "72px 72px",
         }}
       />
 
       <motion.div
-        className="relative z-10 max-w-5xl mx-auto px-8 pt-24 pb-32 text-center"
-        style={{ y: heroY, opacity: heroOpacity }}
+        style={{
+          y,
+          opacity: op,
+          position: "relative",
+          zIndex: 10,
+          width: "100%",
+          maxWidth: 900,
+          margin: "0 auto",
+          padding: "100px 24px 80px",
+          textAlign: "center",
+        }}
       >
-        {/* Eyebrow badge */}
+        {/* Badge */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1, duration: 0.6 }}
-          className="inline-flex items-center gap-2 mb-10"
+          transition={{ delay: 0.08, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            marginBottom: 36,
+          }}
         >
           <span
-            className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full border text-[11px] ${MONO} ${
-              dark
-                ? "border-white/10 text-white/40 bg-white/3"
-                : "border-black/10 text-zinc-500 bg-black/2"
-            }`}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 7,
+              padding: "6px 14px",
+              borderRadius: 100,
+              border: `1px solid ${T.border}`,
+              background: T.bgCard,
+              fontFamily: "'Geist Mono', monospace",
+              fontSize: 11,
+              color: T.textMuted,
+            }}
           >
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: T.green,
+                display: "inline-block",
+              }}
+            />
             Free · Open Source · No sign-up
           </span>
         </motion.div>
 
         {/* Headline */}
-        <div className="mb-8 overflow-hidden">
+        <div style={{ marginBottom: 28, overflow: "hidden" }}>
           {[
-            { text: "Test APIs.", italic: false },
-            { text: "Without switching apps.", italic: true },
-            { text: "Ever.", italic: false },
+            { text: "Test APIs.", italic: false, big: true },
+            { text: "Without switching apps.", italic: true, big: false },
+            { text: "Ever.", italic: false, big: true },
           ].map((line, i) => (
-            <div key={i} className="overflow-hidden">
+            <div key={i} style={{ overflow: "hidden" }}>
               <motion.h1
-                initial={{ y: "100%" }}
+                initial={{ y: "105%" }}
                 animate={{ y: 0 }}
                 transition={{
-                  delay: 0.18 + i * 0.11,
-                  duration: 0.9,
+                  delay: 0.14 + i * 0.1,
+                  duration: 0.8,
                   ease: [0.16, 1, 0.3, 1],
                 }}
-                className={`block leading-[1.06] tracking-[-0.03em] ${SERIF} ${
-                  i === 1
-                    ? `italic text-orange-400 text-[clamp(32px,6.5vw,82px)]`
-                    : `text-[clamp(38px,7.5vw,96px)] ${dark ? "text-white" : "text-zinc-950"}`
-                }`}
+                style={{
+                  display: "block",
+                  fontFamily: "'Instrument Serif', serif",
+                  fontStyle: line.italic ? "italic" : "normal",
+                  fontSize: line.big
+                    ? "clamp(44px, 8vw, 100px)"
+                    : "clamp(34px, 6.5vw, 82px)",
+                  lineHeight: 1.06,
+                  letterSpacing: "-0.03em",
+                  color: line.italic ? T.accent : T.text,
+                  margin: 0,
+                }}
               >
                 {line.text}
               </motion.h1>
@@ -638,29 +1015,44 @@ function Hero({ os, dark }) {
           ))}
         </div>
 
-        {/* Sub copy */}
+        {/* Sub */}
         <motion.p
-          initial={{ opacity: 0, y: 16 }}
+          initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.58, duration: 0.7 }}
-          className={`text-[clamp(16px,2vw,19px)] font-light leading-[1.75] max-w-xl mx-auto mb-3 ${SANS} ${dark ? "text-white/40" : "text-zinc-500"}`}
+          transition={{ delay: 0.5, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+          style={{
+            fontFamily: "'Geist', sans-serif",
+            fontWeight: 300,
+            fontSize: "clamp(15px, 2vw, 18px)",
+            lineHeight: 1.8,
+            color: T.textMuted,
+            maxWidth: 520,
+            margin: "0 auto 16px",
+            padding: "0 8px",
+          }}
         >
-          RestMan runs silently at{" "}
+          RestMan runs at{" "}
           <code
-            className={`text-orange-400 text-[0.88em] px-1.5 py-0.5 rounded-lg ${MONO} ${dark ? "bg-white/6" : "bg-black/4"}`}
+            style={{
+              fontFamily: "'Geist Mono', monospace",
+              fontSize: "0.88em",
+              color: T.accent,
+              background: T.accentMuted,
+              padding: "2px 8px",
+              borderRadius: 6,
+            }}
           >
             localhost:7777
           </code>{" "}
-          as a system service that starts with your machine and never asks for
-          your attention again.
+          as a system service. Starts with your machine. Never asks for
+          attention again.
         </motion.p>
 
-        {/* Typewriter */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 0.78, duration: 0.6 }}
-          className="mb-12"
+          transition={{ delay: 0.62, duration: 0.5 }}
+          style={{ marginBottom: 44 }}
         >
           <Typewriter
             phrases={[
@@ -670,229 +1062,296 @@ function Hero({ os, dark }) {
               "No subscription. No sign-in.",
               "100% offline. Fully yours.",
             ]}
-            className={`text-[15px] font-light ${MONO} ${dark ? "text-white/25" : "text-zinc-400"}`}
           />
         </motion.div>
 
-        {/* CTA group */}
+        {/* CTA */}
         <motion.div
-          initial={{ opacity: 0, y: 14 }}
+          initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.82, duration: 0.6 }}
-          className="flex flex-wrap items-center justify-center gap-4 mb-16"
+          transition={{ delay: 0.68, duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
+          className="flex flex-wrap items-center justify-center gap-3"
+          style={{ marginBottom: 60 }}
         >
-          <DownloadBtn os={os} size="md" dark={dark} />
-          <GithubBtn os={os} size="md" dark={dark} ghost={true} />
-          {/* <a
+          <DownloadBtn os={os} size="md" />
+          <motion.a
             href="https://github.com/nithin-sivakumar/open-restman"
             target="_blank"
             rel="noopener"
-            className={`cursor-pointer inline-flex items-center gap-2 px-6 py-4 rounded-2xl border text-[15px] font-medium transition-all duration-200 ${SANS} ${
-              dark
-                ? "border-white/10 text-white/50 hover:text-white/90 hover:border-white/20"
-                : "border-zinc-200 text-zinc-500 hover:text-zinc-900 hover:border-zinc-300"
-            }`}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 7,
+              padding: "11px 22px",
+              borderRadius: 14,
+              fontFamily: "'Geist', sans-serif",
+              fontSize: 14,
+              fontWeight: 500,
+              color: T.textMuted,
+              border: `1px solid ${T.border}`,
+              background: "transparent",
+              textDecoration: "none",
+              transition: "all 0.18s ease",
+            }}
+            whileHover={{
+              borderColor: T.borderHover,
+              color: T.text,
+              scale: 1.02,
+            }}
+            whileTap={{ scale: 0.97 }}
           >
-            <Github size={16} />
+            <Github size={15} />
             GitHub
-            <ArrowUpRight size={13} className="opacity-50" />
-          </a> */}
+            <ExternalLink size={11} style={{ opacity: 0.4 }} />
+          </motion.a>
           <a
             href="#features"
-            className={`cursor-pointer inline-flex items-center gap-2 text-[14px] font-light transition-colors ${SANS} ${dark ? "text-white/25 hover:text-white/60" : "text-zinc-400 hover:text-zinc-700"}`}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              fontFamily: "'Geist', sans-serif",
+              fontSize: 13,
+              color: T.textFaint,
+              textDecoration: "none",
+              transition: "color 0.18s",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = T.textMuted)}
+            onMouseLeave={(e) => (e.currentTarget.style.color = T.textFaint)}
           >
             See how it works
             <motion.span
               animate={{ y: [0, 3, 0] }}
               transition={{ repeat: Infinity, duration: 2 }}
             >
-              <ChevronDown size={14} />
+              <ChevronDown size={13} />
             </motion.span>
           </a>
         </motion.div>
 
         {/* Browser mockup */}
         <motion.div
-          initial={{ opacity: 0, y: 40, scale: 0.97 }}
+          initial={{ opacity: 0, y: 36, scale: 0.97 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ delay: 0.9, duration: 1.1, ease: [0.16, 1, 0.3, 1] }}
+          transition={{ delay: 0.78, duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
         >
-          <HeroBrowserMockup dark={dark} />
+          <HeroMockup />
         </motion.div>
       </motion.div>
     </section>
   );
 }
 
-/* ── Hero browser mockup ──────────────────────────────── */
-function HeroBrowserMockup({ dark }) {
+/* ── Hero Browser Mockup ───────────────────────────────── */
+function HeroMockup() {
+  const T = useT();
   const [tab, setTab] = useState(0);
-
   const tabs = [
-    { method: "POST", path: "/auth/login", color: "text-blue-400" },
-    { method: "GET", path: "/users/me", color: "text-emerald-400" },
-    { method: "DELETE", path: "/cache/all", color: "text-rose-400" },
+    { method: "POST", path: "/auth/login", color: T.blue },
+    { method: "GET", path: "/users/me", color: T.green },
+    { method: "DELETE", path: "/cache/all", color: T.red },
   ];
-
   const bodies = [
-    `{
-  "token": "eyJhbGci...",
-  "user": {
-    "id": "usr_9fk2x",
-    "email": "dev@acme.io",
-    "role": "admin"
-  }
-}`,
-    `{
-  "id": "usr_9fk2x",
-  "name": "Alex Dev",
-  "plan": "pro",
-  "createdAt": "2024-01-12"
-}`,
-    `{
-  "status": "success",
-  "operation": "cache.clear",
-  "timestamp": "2024-01-12T10:42:11Z"
-}`,
+    `{\n  "token": "eyJhbGci...",\n  "user": {\n    "id": "usr_9fk2x",\n    "email": "dev@acme.io",\n    "role": "admin"\n  }\n}`,
+    `{\n  "id": "usr_9fk2x",\n  "name": "Alex Dev",\n  "plan": "pro",\n  "createdAt": "2024-01-12"\n}`,
+    `{\n  "status": "success",\n  "operation": "cache.clear",\n  "timestamp": "2024-01-12T10:42:11Z"\n}`,
   ];
-
   const statuses = ["200 OK · 124ms", "200 OK · 88ms", "204 No Content · 61ms"];
 
-  const frame = dark
-    ? "bg-white/[0.025] border-white/[0.08]"
-    : "bg-black/[0.02] border-black/[0.07]";
-
-  const barBg = dark ? "bg-white/[0.03]" : "bg-black/[0.02]";
-  const urlBg = dark ? "bg-white/[0.04]" : "bg-black/[0.03]";
-  const sideBg = dark ? "bg-white/[0.015]" : "bg-black/[0.01]";
-
   return (
-    <div className="px-4 sm:px-6">
-      <div
-        className={`w-full max-w-3xl mx-auto rounded-3xl border backdrop-blur-xl overflow-hidden ${frame}`}
+    <div style={{ padding: "0 4px" }}>
+      <Card
+        hover={false}
+        style={{ overflow: "hidden", maxWidth: 780, margin: "0 auto" }}
       >
         {/* Chrome bar */}
         <div
-          className={`flex items-center gap-2 sm:gap-3 px-3 sm:px-5 py-3 border-b ${
-            dark ? "border-white/6" : "border-black/5"
-          } ${barBg}`}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "10px 16px",
+            borderBottom: `1px solid ${T.border}`,
+          }}
         >
-          <div className="flex gap-1.5">
-            <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-rose-400/70" />
-            <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-orange-400/70" />
-            <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-emerald-400/70" />
+          <div style={{ display: "flex", gap: 6 }}>
+            {["#f87171", "#fb923c", "#4ade80"].map((c, i) => (
+              <div
+                key={i}
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: "50%",
+                  background: c,
+                  opacity: 0.7,
+                }}
+              />
+            ))}
           </div>
-
           <div
-            className={`flex-1 mx-2 px-2 sm:px-3 py-1 rounded-xl text-[10px] sm:text-[12px] text-center ${MONO} ${urlBg} ${
-              dark ? "text-white/30" : "text-zinc-400"
-            }`}
+            style={{
+              flex: 1,
+              margin: "0 10px",
+              padding: "4px 12px",
+              borderRadius: 8,
+              background: T.bgCard,
+              fontFamily: "'Geist Mono', monospace",
+              fontSize: 11,
+              color: T.textFaint,
+              textAlign: "center",
+            }}
           >
             localhost:7777
           </div>
-
           <motion.div
-            className={`hidden sm:block text-[10px] px-2 py-1 rounded-full ${MONO} ${
-              dark
-                ? "text-emerald-400 bg-emerald-400/10"
-                : "text-emerald-600 bg-emerald-50"
-            }`}
+            style={{
+              fontSize: 10,
+              fontFamily: "'Geist Mono', monospace",
+              color: T.green,
+              background: T.accentMuted,
+              padding: "3px 8px",
+              borderRadius: 20,
+            }}
             animate={{ opacity: [1, 0.5, 1] }}
-            transition={{ repeat: Infinity, duration: 2.5 }}
+            transition={{ repeat: Infinity, duration: 2.4 }}
           >
             ● live
           </motion.div>
         </div>
 
-        <div className="flex min-h-60 sm:min-h-75">
-          {/* Sidebar (desktop only) */}
+        <div className="flex" style={{ minHeight: 220 }}>
+          {/* Sidebar */}
           <div
-            className={`hidden md:flex w-36 shrink-0 border-r flex-col ${
-              dark ? "border-white/6" : "border-black/5"
-            } ${sideBg}`}
+            className="hidden sm:flex flex-col"
+            style={{
+              width: 130,
+              flexShrink: 0,
+              borderRight: `1px solid ${T.border}`,
+            }}
           >
             <div
-              className={`px-4 py-3 text-[9px] uppercase tracking-[0.2em] ${MONO} ${
-                dark ? "text-white/20" : "text-zinc-400"
-              }`}
+              style={{
+                padding: "10px 14px 6px",
+                fontFamily: "'Geist Mono', monospace",
+                fontSize: 9,
+                letterSpacing: "0.18em",
+                textTransform: "uppercase",
+                color: T.textFaint,
+              }}
             >
               Collections
             </div>
-
             {[
-              { name: "Auth", dot: "bg-blue-400", count: 12 },
-              { name: "Users", dot: "bg-emerald-400", count: 8 },
-              { name: "Payments", dot: "bg-orange-400", count: 5 },
-            ].map((c, i) => (
+              { n: "Auth", c: T.blue },
+              { n: "Users", c: T.green },
+              { n: "Payments", c: T.accent },
+            ].map((item, i) => (
               <div
-                key={c.name}
-                className={`px-4 py-2.5 text-[12px] flex items-center gap-2 ${
-                  i === 0
-                    ? dark
-                      ? "bg-white/4 text-white/80"
-                      : "bg-black/4 text-zinc-800"
-                    : dark
-                      ? "text-white/30"
-                      : "text-zinc-400"
-                }`}
+                key={item.n}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "8px 14px",
+                  fontSize: 12,
+                  fontFamily: "'Geist', sans-serif",
+                  color: i === 0 ? T.text : T.textFaint,
+                  background: i === 0 ? T.bgCard : "transparent",
+                }}
               >
-                <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
-                <span>{c.name}</span>
+                <span
+                  style={{
+                    width: 5,
+                    height: 5,
+                    borderRadius: "50%",
+                    background: item.c,
+                    flexShrink: 0,
+                  }}
+                />
+                {item.n}
               </div>
             ))}
           </div>
 
-          {/* Main pane */}
-          <div className="flex-1 flex flex-col min-w-0">
+          {/* Main */}
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              minWidth: 0,
+            }}
+          >
             {/* Tabs */}
             <div
-              className={`flex border-b overflow-x-auto ${
-                dark ? "border-white/6" : "border-black/5"
-              }`}
+              style={{
+                display: "flex",
+                borderBottom: `1px solid ${T.border}`,
+                overflowX: "auto",
+              }}
             >
               {tabs.map((t, i) => (
                 <button
                   key={i}
                   onClick={() => setTab(i)}
-                  className={`cursor-pointer shrink-0 px-3 sm:px-4 py-2.5 text-[10px] sm:text-[11px] transition-all border-r ${MONO} ${
-                    dark ? "border-white/6" : "border-black/5"
-                  } ${
-                    tab === i
-                      ? dark
-                        ? "text-white/90 bg-white/4"
-                        : "text-zinc-900 bg-black/2"
-                      : dark
-                        ? "text-white/25 hover:text-white/50"
-                        : "text-zinc-400 hover:text-zinc-600"
-                  }`}
+                  style={{
+                    flexShrink: 0,
+                    padding: "8px 14px",
+                    fontFamily: "'Geist Mono', monospace",
+                    fontSize: 11,
+                    background: tab === i ? T.bgCard : "transparent",
+                    color: tab === i ? T.text : T.textFaint,
+                    // borderRight: `1px solid ${T.border}`,
+                    border: "none",
+                    borderBottom:
+                      tab === i
+                        ? `2px solid ${T.accent}`
+                        : "1px solid transparent",
+                    transition: "all 0.15s ease",
+                    outline: "none",
+                  }}
                 >
-                  <span className={t.color}>{t.method}</span> {t.path}
+                  <span style={{ color: t.color }}>{t.method}</span> {t.path}
                 </button>
               ))}
             </div>
-
             {/* Response */}
-            <div className="flex-1 p-3 sm:p-5 overflow-auto text-left">
-              <div className="flex items-center gap-3 mb-3">
-                <span
-                  className={`text-[10px] sm:text-[11px] font-medium text-emerald-400 ${MONO}`}
-                >
-                  {statuses[tab]}
-                </span>
+            <div style={{ flex: 1, justifyContent: "start", padding: "16px" }}>
+              <div
+                style={{
+                  marginBottom: 10,
+                  fontFamily: "'Geist Mono', monospace",
+                  fontSize: 11,
+                  color: T.green,
+                }}
+              >
+                {statuses[tab]}
               </div>
-
               <AnimatePresence mode="popLayout">
                 <motion.pre
                   key={tab}
                   initial={{ opacity: 0, y: 4 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0 }}
-                  transition={{ duration: 0.18 }}
-                  className={`text-[11px] sm:text-[12px] leading-[1.6] overflow-x-auto rounded-xl p-3 sm:p-4 ${
-                    dark ? "bg-black/30" : "bg-zinc-50"
-                  }`}
+                  transition={{ duration: 0.15 }}
+                  style={{
+                    margin: 0,
+                    padding: "12px 14px",
+                    borderRadius: 10,
+                    background: T.dark ? "rgba(0,0,0,0.35)" : T.bgAlt,
+                    overflowX: "auto",
+                    textAlign: "left",
+                    whiteSpace: "pre",
+                    lineHeight: 1.1,
+                    tabSize: 2,
+                  }}
                 >
                   <code
+                    style={{
+                      fontFamily: "'Geist Mono', monospace",
+                      fontSize: 12,
+                      lineHeight: 1.6,
+                    }}
                     dangerouslySetInnerHTML={{
                       __html: Prism.highlight(
                         JSON.stringify(JSON.parse(bodies[tab]), null, 2),
@@ -906,50 +1365,59 @@ function HeroBrowserMockup({ dark }) {
             </div>
           </div>
         </div>
-      </div>
+      </Card>
     </div>
   );
 }
 
-/* ── Stats bar ────────────────────────────────────────── */
-function StatsBar({ dark }) {
+/* ══════════════════════════════════════════════════════
+   STATS BAR
+══════════════════════════════════════════════════════ */
+function StatsBar() {
+  const T = useT();
   const ref = useRef();
-
-  const inView = useInView(ref, {
-    once: true,
-    margin: "-40px",
-  });
-
+  const inView = useInView(ref, { once: true, margin: "-40px" });
   const items = [
     { value: 3000, suffix: "+", label: "Active installs", dec: 0 },
     { value: 4.9, suffix: "★", label: "Avg. rating", dec: 1 },
     { custom: "Free", label: "Forever. Always." },
-    { value: 3, suffix: "", label: "Platforms", dec: 0 },
+    { value: 3, suffix: "", label: "Platforms supported", dec: 0 },
   ];
 
   return (
     <section
       ref={ref}
-      className={`border-y ${dark ? "border-white/6" : "border-black/6"}`}
+      style={{
+        borderTop: `1px solid ${T.border}`,
+        borderBottom: `1px solid ${T.border}`,
+        background: T.bgAlt,
+      }}
     >
       <div className="max-w-5xl mx-auto grid grid-cols-2 md:grid-cols-4">
         {items.map((s, i) => (
           <motion.div
             key={s.label}
-            initial={{ opacity: 0, y: 16 }}
+            initial={{ opacity: 0, y: 14 }}
             animate={inView ? { opacity: 1, y: 0 } : {}}
-            transition={{ delay: i * 0.08, duration: 0.55 }}
-            className={`py-10 md:py-12 px-6 md:px-8 flex flex-col gap-2 ${
-              i > 0
-                ? `border-l ${dark ? "border-white/6" : "border-black/6"}`
-                : ""
-            }`}
+            transition={{
+              delay: i * 0.07,
+              duration: 0.5,
+              ease: [0.16, 1, 0.3, 1],
+            }}
+            style={{
+              padding: "36px 28px",
+              borderLeft: i > 0 ? `1px solid ${T.border}` : "none",
+            }}
           >
-            {/* NUMBER */}
             <div
-              className={`text-[clamp(30px,6vw,50px)] font-medium tracking-[-0.03em] leading-none ${
-                dark ? "text-white" : "text-zinc-900"
-              }`}
+              style={{
+                fontFamily: "'Instrument Serif', serif",
+                fontSize: "clamp(32px, 5vw, 52px)",
+                letterSpacing: "-0.03em",
+                lineHeight: 1,
+                color: T.text,
+                marginBottom: 8,
+              }}
             >
               {s.custom
                 ? s.custom
@@ -962,12 +1430,12 @@ function StatsBar({ dark }) {
                     />
                   )}
             </div>
-
-            {/* LABEL */}
             <div
-              className={`text-[12px] ${
-                dark ? "text-white/30" : "text-zinc-400"
-              }`}
+              style={{
+                fontFamily: "'Geist', sans-serif",
+                fontSize: 12,
+                color: T.textFaint,
+              }}
             >
               {s.label}
             </div>
@@ -978,145 +1446,190 @@ function StatsBar({ dark }) {
   );
 }
 
-/* ── Features — true split sticky scroll ─────────────── */
+/* ══════════════════════════════════════════════════════
+   FEATURES — sticky scroll
+══════════════════════════════════════════════════════ */
 const FEATURES = [
   {
     id: "browser",
     tag: "Zero friction",
     title: "Your entire API workspace lives in a browser tab.",
-    body: "Open a new tab — RestMan is already there at localhost:7777. No launcher, no dock icon, no loading screen. It's the fastest API client you'll ever use because there's nothing to open.",
-    stat: { value: "0ms", label: "Time to open" },
-    accent: "text-orange-400",
+    body: "Open a new tab — RestMan is already there at localhost:7777. No launcher, no dock icon, no loading screen. The fastest API client you'll ever use because there's nothing to open.",
+    accentColor: null,
   },
   {
     id: "service",
     tag: "Always on",
     title: "Install once. Never think about it again.",
-    body: "RestMan registers as a system service on first install. It starts with your machine, updates itself silently from Git every 30 minutes, and recovers automatically if it ever crashes.",
-    stat: { value: "~45MB", label: "RAM footprint" },
-    accent: "text-emerald-400",
+    body: "RestMan registers as a system service on first install. Starts with your machine, updates itself silently from Git every 30 minutes, and auto-recovers if it crashes.",
+    accentColor: null,
   },
   {
     id: "env",
     tag: "Environments",
-    title: "Switch between dev, staging, and production in one click.",
-    body: "Define your environment variables once. Every request automatically resolves them. Your secrets never leave the machine — no cloud sync, no shared state.",
-    stat: { value: "∞", label: "Environments" },
-    accent: "text-blue-400",
+    title: "Switch between dev, staging, and prod in one click.",
+    body: "Define your environment variables once. Every request resolves them automatically. Your secrets never leave the machine — no cloud sync, no shared state.",
+    accentColor: null,
   },
   {
     id: "privacy",
     tag: "Privacy first",
     title: "Your data has never left this machine. It never will.",
-    body: "Zero telemetry. Zero analytics. No account. No promotional email. RestMan works fully offline — air-gapped environments, restricted networks, it doesn't matter. What you test stays with you.",
-    stat: { value: "0", label: "Data sent out" },
-    accent: "text-rose-400",
+    body: "Zero telemetry. Zero analytics. No account. No email. RestMan works fully offline — air-gapped environments, restricted networks, it doesn't matter. What you test stays with you.",
+    accentColor: null,
   },
 ];
 
-/* Right-side visual cards for each feature */
-function FeatureVisual({ id, dark }) {
-  if (id === "browser") {
+function FeatureViz({ id }) {
+  const T = useT();
+  if (id === "browser")
     return (
-      <GlassCard dark={dark} className="p-6 space-y-3">
-        {[
-          { m: "POST", p: "/auth/token", c: "text-blue-400", s: "200" },
-          { m: "GET", p: "/v2/users", c: "text-emerald-400", s: "200" },
-          { m: "PUT", p: "/orders/91", c: "text-orange-400", s: "200" },
-          { m: "DEL", p: "/cache/all", c: "text-rose-400", s: "204" },
-        ].map((r, i) => (
-          <motion.div
-            key={i}
-            initial={{ opacity: 0, x: -8 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: i * 0.07 }}
-            whileHover={{ x: 4, transition: { duration: 0.1 } }}
-            className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${dark ? "bg-white/3 hover:bg-white/6" : "bg-black/2 hover:bg-black/4"}`}
-          >
-            <span
-              className={`font-medium text-[11px] w-9 shrink-0 ${MONO} ${r.c}`}
+      <Card style={{ padding: 20 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {[
+            { m: "POST", p: "/auth/token", c: T.blue },
+            { m: "GET", p: "/v2/users", c: T.green },
+            { m: "PUT", p: "/orders/91", c: T.accent },
+            { m: "DEL", p: "/cache/all", c: T.red },
+          ].map((r, i) => (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, x: -6 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: i * 0.06 }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                padding: "10px 14px",
+                borderRadius: 10,
+                background: T.bgCard,
+                border: `1px solid ${T.border}`,
+              }}
             >
-              {r.m}
-            </span>
-            <span
-              className={`flex-1 text-[13px] truncate ${SANS} ${dark ? "text-white/60" : "text-zinc-600"}`}
-            >
-              {r.p}
-            </span>
-            <span className={`text-[11px] text-emerald-400 ${MONO}`}>
-              {r.s}
-            </span>
-          </motion.div>
-        ))}
-        <div
-          className={`flex items-center justify-between px-4 py-2 text-[11px] ${MONO} ${dark ? "text-white/20" : "text-zinc-400"}`}
-        >
-          <span>localhost:7777</span>
-          <motion.span
-            className="text-emerald-400"
-            animate={{ opacity: [1, 0.4, 1] }}
-            transition={{ repeat: Infinity, duration: 2.2 }}
+              <span
+                style={{
+                  fontFamily: "'Geist Mono', monospace",
+                  fontSize: 10,
+                  fontWeight: 500,
+                  color: r.c,
+                  width: 32,
+                  flexShrink: 0,
+                }}
+              >
+                {r.m}
+              </span>
+              <span
+                style={{
+                  fontFamily: "'Geist', sans-serif",
+                  fontSize: 13,
+                  color: T.textMuted,
+                  flex: 1,
+                }}
+              >
+                {r.p}
+              </span>
+              <span
+                style={{
+                  fontFamily: "'Geist Mono', monospace",
+                  fontSize: 10,
+                  color: T.green,
+                }}
+              >
+                200
+              </span>
+            </motion.div>
+          ))}
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              padding: "6px 14px",
+              fontFamily: "'Geist Mono', monospace",
+              fontSize: 10,
+              color: T.textFaint,
+            }}
           >
-            ● live
-          </motion.span>
-        </div>
-      </GlassCard>
-    );
-  }
-
-  if (id === "service") {
-    const items = [
-      {
-        icon: <Zap size={14} />,
-        label: "Starts on boot",
-        color: "text-orange-400",
-      },
-      {
-        icon: <RefreshCw size={14} />,
-        label: "Auto-updates",
-        color: "text-blue-400",
-      },
-      {
-        icon: <Cpu size={14} />,
-        label: "~45MB RAM",
-        color: "text-emerald-400",
-      },
-      {
-        icon: <Server size={14} />,
-        label: "Port 7777, customizable",
-        color: "text-purple-400",
-      },
-    ];
-    return (
-      <GlassCard dark={dark} className="p-6 space-y-3">
-        {items.map((item, i) => (
-          <motion.div
-            key={i}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.09 }}
-            whileHover={{ x: 4 }}
-            className={`flex items-center gap-4 px-4 py-3.5 rounded-xl transition-all ${dark ? "bg-white/3 hover:bg-white/6" : "bg-black/2 hover:bg-black/4"}`}
-          >
-            <span className={`shrink-0 ${item.color}`}>{item.icon}</span>
-            <span
-              className={`flex-1 text-[13px] font-medium ${SANS} ${dark ? "text-white/70" : "text-zinc-700"}`}
-            >
-              {item.label}
-            </span>
+            <span>localhost:7777</span>
             <motion.span
-              className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0"
-              animate={{ opacity: [1, 0.2, 1] }}
-              transition={{ repeat: Infinity, duration: 2, delay: i * 0.5 }}
-            />
-          </motion.div>
-        ))}
-      </GlassCard>
+              style={{ color: T.green }}
+              animate={{ opacity: [1, 0.4, 1] }}
+              transition={{ repeat: Infinity, duration: 2 }}
+            >
+              ● live
+            </motion.span>
+          </div>
+        </div>
+      </Card>
     );
-  }
+
+  if (id === "service")
+    return (
+      <Card style={{ padding: 20 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {[
+            { icon: <Zap size={14} />, label: "Starts on boot", c: T.accent },
+            {
+              icon: <RefreshCw size={14} />,
+              label: "Auto-updates every 30min",
+              c: T.blue,
+            },
+            {
+              icon: <Cpu size={14} />,
+              label: "~45MB RAM footprint",
+              c: T.green,
+            },
+            {
+              icon: <Server size={14} />,
+              label: "Port 7777, customizable",
+              c: T.red,
+            },
+          ].map((item, i) => (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.08 }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                padding: "12px 14px",
+                borderRadius: 10,
+                background: T.bgCard,
+                border: `1px solid ${T.border}`,
+              }}
+            >
+              <span style={{ color: item.c }}>{item.icon}</span>
+              <span
+                style={{
+                  fontFamily: "'Geist', sans-serif",
+                  fontSize: 13,
+                  color: T.text,
+                  flex: 1,
+                }}
+              >
+                {item.label}
+              </span>
+              <motion.span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: "50%",
+                  background: T.green,
+                  display: "block",
+                }}
+                animate={{ opacity: [1, 0.2, 1] }}
+                transition={{ repeat: Infinity, duration: 2, delay: i * 0.5 }}
+              />
+            </motion.div>
+          ))}
+        </div>
+      </Card>
+    );
 
   if (id === "env") {
-    const [env, setEnv] = useState(2);
+    const [env, setEnv] = useState(0);
     const envs = ["dev", "staging", "prod"];
     const rows = [
       [
@@ -1136,75 +1649,96 @@ function FeatureVisual({ id, dark }) {
       ],
     ];
     return (
-      <GlassCard dark={dark} className="overflow-hidden">
-        <div
-          className={`flex border-b ${dark ? "border-white/6" : "border-black/5"}`}
-        >
+      <Card style={{ overflow: "hidden" }}>
+        <div style={{ display: "flex", borderBottom: `1px solid ${T.border}` }}>
           {envs.map((e, i) => (
             <button
               key={e}
               onClick={() => setEnv(i)}
-              className={`cursor-pointer flex-1 py-3.5 text-[11px] font-medium transition-all ${MONO} ${
-                i === env
-                  ? dark
-                    ? "text-orange-400 border-b-2 border-orange-400"
-                    : "text-orange-500 border-b-2 border-orange-400"
-                  : dark
-                    ? "text-white/25 hover:text-white/50"
-                    : "text-zinc-400"
-              }`}
+              style={{
+                flex: 1,
+                padding: "10px 0",
+                fontFamily: "'Geist Mono', monospace",
+                fontSize: 11,
+                background: "transparent",
+                border: "none",
+                borderBottom:
+                  i === env ? `2px solid ${T.accent}` : "2px solid transparent",
+                color: i === env ? T.accent : T.textFaint,
+                transition: "all 0.15s ease",
+                outline: "none",
+              }}
             >
               {e}
             </button>
           ))}
         </div>
-        <div className="p-5 space-y-3.5">
+        <div style={{ padding: 20 }}>
           <AnimatePresence mode="popLayout">
             <motion.div
               key={env}
               initial={{ opacity: 0, y: 5 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -5 }}
-              transition={{ duration: 0.18 }}
-              className="space-y-3"
+              transition={{ duration: 0.16 }}
+              style={{ display: "flex", flexDirection: "column", gap: 12 }}
             >
               {rows[env].map(([k, v]) => (
                 <div
                   key={k}
-                  className={`flex items-center gap-4 text-[12px] ${MONO}`}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 16,
+                    fontFamily: "'Geist Mono', monospace",
+                    fontSize: 12,
+                  }}
                 >
                   <span
-                    className={`w-20 shrink-0 ${dark ? "text-white/25" : "text-zinc-400"}`}
+                    style={{ width: 76, flexShrink: 0, color: T.textFaint }}
                   >
                     {k}
                   </span>
-                  <span
-                    className={`flex-1 truncate ${dark ? "text-white/70" : "text-zinc-700"}`}
-                  >
-                    {v}
-                  </span>
+                  <span style={{ color: T.text }}>{v}</span>
                 </div>
               ))}
             </motion.div>
           </AnimatePresence>
         </div>
-      </GlassCard>
+      </Card>
     );
   }
 
-  if (id === "privacy") {
+  if (id === "privacy")
     return (
-      <GlassCard dark={dark} className="p-6">
-        <div className="flex items-center justify-center mb-6">
+      <Card style={{ padding: 20 }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            marginBottom: 20,
+          }}
+        >
           <motion.div
-            className={`w-16 h-16 rounded-2xl flex items-center justify-center border ${dark ? "border-white/8 bg-white/3" : "border-black/[0.07] bg-black/2"}`}
+            style={{
+              width: 60,
+              height: 60,
+              borderRadius: 16,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: T.bgCard,
+              border: `1px solid ${T.border}`,
+            }}
             animate={{ rotate: [0, 1, -1, 0] }}
             transition={{ repeat: Infinity, duration: 5, ease: "easeInOut" }}
           >
-            <Shield size={28} className="text-rose-400" />
+            <Shield size={26} style={{ color: T.red }} />
           </motion.div>
         </div>
-        <div className="grid grid-cols-2 gap-2.5">
+        <div
+          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}
+        >
           {[
             "No telemetry",
             "No accounts",
@@ -1213,118 +1747,144 @@ function FeatureVisual({ id, dark }) {
             "Air-gapped",
             "Offline-first",
           ].map((item) => (
-            <motion.div
+            <div
               key={item}
-              whileHover={{ scale: 1.02 }}
-              className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-[12px] ${MONO} ${
-                dark
-                  ? "bg-white/3 border border-white/6 text-white/50 hover:border-white/12"
-                  : "bg-black/2 border border-black/6 text-zinc-500"
-              } transition-all`}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+                padding: "8px 12px",
+                borderRadius: 10,
+                border: `1px solid ${T.border}`,
+                background: T.bgCard,
+                fontFamily: "'Geist Mono', monospace",
+                fontSize: 11,
+                color: T.textMuted,
+              }}
             >
-              <Check size={10} className="text-emerald-400 shrink-0" />
+              <Check size={10} style={{ color: T.green, flexShrink: 0 }} />
               {item}
-            </motion.div>
+            </div>
           ))}
         </div>
-      </GlassCard>
+      </Card>
     );
-  }
 
   return null;
 }
 
-/* ── FEATURES SPLIT LAYOUT ────────────────────────────── */
-function Features({ dark }) {
+function Features() {
+  const T = useT();
   const [activeIdx, setActiveIdx] = useState(0);
   const stepRefs = useRef([]);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            const idx = Number(entry.target.dataset.index);
-            setActiveIdx(idx);
-          }
-        });
-      },
-      {
-        root: null,
-        rootMargin: "-50% 0px -50% 0px",
-        threshold: 0,
-      },
+      (entries) =>
+        entries.forEach((e) => {
+          if (e.isIntersecting) setActiveIdx(Number(e.target.dataset.index));
+        }),
+      { rootMargin: "-50% 0px -50% 0px", threshold: 0 },
     );
-
     stepRefs.current.forEach((el) => el && observer.observe(el));
-
     return () => observer.disconnect();
   }, []);
 
   return (
-    <section id="features" className={dark ? "bg-[#0a0a0a]" : "bg-[#f9f8f6]"}>
-      {/* Sticky viewport */}
-      <div className="sticky top-0 h-screen flex items-center overflow-hidden">
-        <div className="w-full max-w-7xl mx-auto px-8 grid grid-cols-1 lg:grid-cols-2 items-center">
-          {/* LEFT */}
-          <div className="lg:pr-20">
-            <div className="flex items-center gap-2 mb-10">
+    <section id="features" style={{ background: T.bg, position: "relative" }}>
+      {/* Sticky panel */}
+      <div
+        style={{
+          position: "sticky",
+          top: 0,
+          height: "100vh",
+          display: "flex",
+          alignItems: "center",
+          overflow: "hidden",
+          zIndex: 2,
+        }}
+      >
+        <div className="w-full max-w-7xl mx-auto px-6 sm:px-8 grid grid-cols-1 lg:grid-cols-2 items-center gap-10 lg:gap-20">
+          {/* Left text */}
+          <div>
+            {/* Progress dots */}
+            <div style={{ display: "flex", gap: 6, marginBottom: 36 }}>
               {FEATURES.map((_, i) => (
                 <motion.div
                   key={i}
                   animate={{
                     width: i === activeIdx ? 24 : 6,
-                    opacity: i === activeIdx ? 1 : 0.25,
+                    opacity: i === activeIdx ? 1 : 0.2,
                   }}
-                  transition={{ duration: 0.3 }}
-                  className={`h-1 rounded-full ${
-                    i === activeIdx
-                      ? "bg-orange-400"
-                      : dark
-                        ? "bg-white/30"
-                        : "bg-zinc-300"
-                  }`}
+                  transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+                  style={{
+                    height: 4,
+                    borderRadius: 2,
+                    background: i === activeIdx ? T.accent : T.textFaint,
+                  }}
                 />
               ))}
             </div>
-
             <AnimatePresence mode="popLayout">
               <motion.div
                 key={activeIdx}
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 18 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                transition={{ duration: 0.45 }}
+                exit={{ opacity: 0, y: -18 }}
+                transition={{ duration: 0.38, ease: [0.16, 1, 0.3, 1] }}
               >
                 <span
-                  className={`text-[11px] tracking-[0.2em] uppercase block mb-5 ${FEATURES[activeIdx].accent}`}
+                  style={{
+                    fontFamily: "'Geist Mono', monospace",
+                    fontSize: 10,
+                    letterSpacing: "0.2em",
+                    textTransform: "uppercase",
+                    color: T.accent,
+                    display: "block",
+                    marginBottom: 18,
+                  }}
                 >
                   {FEATURES[activeIdx].tag}
                 </span>
-
-                <h2 className="text-[clamp(28px,3.2vw,44px)] leading-[1.15] mb-6">
+                <h2
+                  style={{
+                    fontFamily: "'Instrument Serif', serif",
+                    fontSize: "clamp(26px, 3vw, 42px)",
+                    lineHeight: 1.15,
+                    color: T.text,
+                    marginBottom: 20,
+                    margin: "0 0 18px",
+                  }}
+                >
                   {FEATURES[activeIdx].title}
                 </h2>
-
-                <p className="text-[16px] leading-[1.8] mb-8 opacity-60">
+                <p
+                  style={{
+                    fontFamily: "'Geist', sans-serif",
+                    fontWeight: 300,
+                    fontSize: 15,
+                    lineHeight: 1.85,
+                    color: T.textMuted,
+                  }}
+                >
                   {FEATURES[activeIdx].body}
                 </p>
               </motion.div>
             </AnimatePresence>
           </div>
 
-          {/* RIGHT */}
-          <div className="hidden lg:flex items-center justify-center lg:pl-8">
+          {/* Right visual */}
+          <div className="hidden lg:block">
             <AnimatePresence mode="popLayout">
               <motion.div
                 key={activeIdx}
-                initial={{ opacity: 0, scale: 0.96 }}
+                initial={{ opacity: 0, scale: 0.97 }}
                 animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.96 }}
-                transition={{ duration: 0.45 }}
-                className="w-full max-w-md"
+                exit={{ opacity: 0, scale: 0.97 }}
+                transition={{ duration: 0.38, ease: [0.16, 1, 0.3, 1] }}
+                style={{ maxWidth: 420, marginLeft: "auto" }}
               >
-                <FeatureVisual id={FEATURES[activeIdx].id} dark={dark} />
+                <FeatureViz id={FEATURES[activeIdx].id} />
               </motion.div>
             </AnimatePresence>
           </div>
@@ -1337,146 +1897,209 @@ function Features({ dark }) {
           key={i}
           ref={(el) => (stepRefs.current[i] = el)}
           data-index={i}
-          className="h-screen"
+          style={{ height: "100vh" }}
         />
       ))}
     </section>
   );
 }
 
-/* ── Lightweight ──────────────────────────────────────── */
-function Lightweight({ dark }) {
+/* ══════════════════════════════════════════════════════
+   LIGHTWEIGHT
+══════════════════════════════════════════════════════ */
+function Lightweight() {
+  const T = useT();
   const ref = useRef();
   const inView = useInView(ref, { once: true, margin: "-80px" });
   const [hov, setHov] = useState(null);
+
   const metrics = [
     {
       label: "Memory",
       value: "~45MB",
       pct: 9,
-      color: "bg-emerald-400",
+      color: T.green,
       note: "Less than a Chrome tab",
     },
     {
       label: "CPU idle",
       value: "~0.1%",
       pct: 1,
-      color: "bg-blue-400",
+      color: T.blue,
       note: "Invisible at rest",
     },
     {
       label: "Boot time",
       value: "<2s",
       pct: 12,
-      color: "bg-orange-400",
-      note: "Ready instantly",
+      color: T.accent,
+      note: "Ready before you blink",
     },
     {
       label: "Disk",
       value: "~300MB",
       pct: 8,
-      color: "bg-rose-400",
+      color: T.red,
       note: "Smaller than most apps",
     },
   ];
+
   return (
     <section
       ref={ref}
-      className={`py-36 border-y ${dark ? "border-white/6 bg-[#0d0d0d]" : "border-black/6 bg-zinc-50"}`}
+      style={{
+        padding: "120px 24px",
+        background: T.bgAlt,
+        borderTop: `1px solid ${T.border}`,
+        borderBottom: `1px solid ${T.border}`,
+      }}
     >
-      <div className="max-w-5xl mx-auto px-8 grid grid-cols-1 lg:grid-cols-2 gap-20 items-center">
-        <motion.div
-          initial={{ opacity: 0, x: -20 }}
-          animate={inView ? { opacity: 1, x: 0 } : {}}
-          transition={{ duration: 0.7 }}
-        >
+      <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+        <Reveal>
           <span
-            className={`text-[11px] font-medium tracking-[0.2em] uppercase block mb-5 ${MONO} ${dark ? "text-white/25" : "text-zinc-400"}`}
+            style={{
+              fontFamily: "'Geist Mono', monospace",
+              fontSize: 10,
+              letterSpacing: "0.2em",
+              textTransform: "uppercase",
+              color: T.textFaint,
+              display: "block",
+              marginBottom: 18,
+            }}
           >
             Lightweight
           </span>
           <h2
-            className={`text-[clamp(28px,4vw,48px)] font-medium tracking-[-0.025em] leading-[1.1] mb-6 ${SERIF} ${dark ? "text-white" : "text-zinc-950"}`}
+            style={{
+              fontFamily: "'Instrument Serif', serif",
+              fontSize: "clamp(28px, 4vw, 46px)",
+              lineHeight: 1.1,
+              letterSpacing: "-0.025em",
+              color: T.text,
+              margin: "0 0 18px",
+            }}
           >
             Barely there.{" "}
-            <em className="text-orange-400 not-italic">Always there.</em>
+            <em style={{ color: T.accent, fontStyle: "italic" }}>
+              Always there.
+            </em>
           </h2>
           <p
-            className={`text-[16px] font-light leading-[1.8] ${SANS} ${dark ? "text-white/40" : "text-zinc-500"}`}
+            style={{
+              fontFamily: "'Geist', sans-serif",
+              fontWeight: 300,
+              fontSize: 15,
+              lineHeight: 1.8,
+              color: T.textMuted,
+            }}
           >
             RestMan consumes fewer resources than a single browser tab. It runs
-            24/7, updates itself, and demands exactly zero attention after the
-            first setup.
+            24/7, updates itself, and demands exactly zero attention after first
+            setup.
           </p>
-        </motion.div>
+        </Reveal>
 
-        <motion.div
-          initial={{ opacity: 0, x: 20 }}
-          animate={inView ? { opacity: 1, x: 0 } : {}}
-          transition={{ duration: 0.7, delay: 0.15 }}
-          className="space-y-6"
-        >
-          {metrics.map((m, i) => (
-            <div
-              key={m.label}
-              onMouseEnter={() => setHov(i)}
-              onMouseLeave={() => setHov(null)}
-              className="group"
-            >
-              <div className="flex items-center justify-between mb-2.5">
-                <div className="flex items-center gap-3">
-                  <span
-                    className={`text-[13px] font-medium ${MONO} ${dark ? "text-white/50" : "text-zinc-500"}`}
-                  >
-                    {m.label}
-                  </span>
-                  <AnimatePresence>
-                    {hov === i && (
-                      <motion.span
-                        initial={{ opacity: 0, x: -4 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0 }}
-                        className={`text-[11px] font-light ${SANS} ${dark ? "text-white/25" : "text-zinc-400"}`}
-                      >
-                        {m.note}
-                      </motion.span>
-                    )}
-                  </AnimatePresence>
-                </div>
-                <span
-                  className={`text-[13px] font-medium ${MONO} ${dark ? "text-white/80" : "text-zinc-800"}`}
-                >
-                  {m.value}
-                </span>
-              </div>
+        <Reveal delay={0.1}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
+            {metrics.map((m, i) => (
               <div
-                className={`h-1.5 rounded-full overflow-hidden ${dark ? "bg-white/5" : "bg-zinc-200"}`}
+                key={m.label}
+                onMouseEnter={() => setHov(i)}
+                onMouseLeave={() => setHov(null)}
               >
-                <motion.div
-                  className={`h-full rounded-full ${m.color} transition-opacity duration-200 ${hov === i ? "opacity-100" : "opacity-60"}`}
-                  initial={{ width: 0 }}
-                  animate={inView ? { width: `${m.pct}%` } : {}}
-                  transition={{
-                    delay: 0.35 + i * 0.1,
-                    duration: 1,
-                    ease: "easeOut",
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: 8,
                   }}
-                />
+                >
+                  <div
+                    style={{ display: "flex", alignItems: "center", gap: 10 }}
+                  >
+                    <span
+                      style={{
+                        fontFamily: "'Geist Mono', monospace",
+                        fontSize: 12,
+                        color: T.textMuted,
+                      }}
+                    >
+                      {m.label}
+                    </span>
+                    <AnimatePresence>
+                      {hov === i && (
+                        <motion.span
+                          initial={{ opacity: 0, x: -4 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0 }}
+                          style={{
+                            fontFamily: "'Geist', sans-serif",
+                            fontSize: 11,
+                            color: T.textFaint,
+                          }}
+                        >
+                          {m.note}
+                        </motion.span>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                  <span
+                    style={{
+                      fontFamily: "'Geist Mono', monospace",
+                      fontSize: 12,
+                      color: T.text,
+                    }}
+                  >
+                    {m.value}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    height: 4,
+                    borderRadius: 2,
+                    background: T.bgCard,
+                    border: `1px solid ${T.border}`,
+                    overflow: "hidden",
+                  }}
+                >
+                  <motion.div
+                    style={{
+                      height: "100%",
+                      borderRadius: 2,
+                      background: m.color,
+                      opacity: hov === i ? 1 : 0.55,
+                    }}
+                    initial={{ width: 0 }}
+                    animate={inView ? { width: `${m.pct}%` } : {}}
+                    transition={{
+                      delay: 0.3 + i * 0.08,
+                      duration: 0.9,
+                      ease: "easeOut",
+                    }}
+                  />
+                </div>
               </div>
-            </div>
-          ))}
-          <p
-            className={`text-[10px] pt-2 font-light ${MONO} ${dark ? "text-white/15" : "text-zinc-400"}`}
-          >
-            Measured on M1 MacBook Air · mid-load workday
-          </p>
-        </motion.div>
+            ))}
+            <span
+              style={{
+                fontFamily: "'Geist Mono', monospace",
+                fontSize: 9,
+                color: T.textFaint,
+              }}
+            >
+              Measured on M1 MacBook Air · mid-load workday
+            </span>
+          </div>
+        </Reveal>
       </div>
     </section>
   );
 }
 
-/* ── Compare ──────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════
+   COMPARE
+══════════════════════════════════════════════════════ */
 const ROWS = [
   { feat: "Fully offline & local", rm: true, po: false, ins: false },
   { feat: "No account required", rm: true, po: false, ins: false },
@@ -1484,11 +2107,12 @@ const ROWS = [
   { feat: "Runs in your browser", rm: true, po: true, ins: true },
   { feat: "Open source", rm: true, po: false, ins: true },
   { feat: "Zero data collection", rm: true, po: false, ins: false },
-  { feat: "Self-updating", rm: true, po: true, ins: true },
-  { feat: "One-time setup, lifetime", rm: true, po: false, ins: false },
+  { feat: "Self-updating service", rm: true, po: true, ins: true },
+  { feat: "One-time setup, lifetime use", rm: true, po: false, ins: false },
 ];
 
-function Compare({ dark }) {
+function Compare() {
+  const T = useT();
   const ref = useRef();
   const inView = useInView(ref, { once: true, margin: "-80px" });
 
@@ -1496,171 +2120,218 @@ function Compare({ dark }) {
     <section
       id="compare"
       ref={ref}
-      className={`pb-28 pt-24 ${dark ? "bg-[#0a0a0a]" : "bg-[#f9f8f6]"}`}
+      style={{ padding: "100px 24px", background: T.bg }}
     >
-      <div className="max-w-4xl mx-auto px-6">
-        {/* Title */}
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={inView ? { opacity: 1, y: 0 } : {}}
-          transition={{ duration: 0.6 }}
-          className="mb-14"
-        >
+      <div className="max-w-4xl mx-auto">
+        <Reveal>
           <span
-            className={`text-[11px] tracking-[0.2em] uppercase block mb-4 ${dark ? "text-white/25" : "text-zinc-400"}`}
+            style={{
+              fontFamily: "'Geist Mono', monospace",
+              fontSize: 10,
+              letterSpacing: "0.2em",
+              textTransform: "uppercase",
+              color: T.textFaint,
+              display: "block",
+              marginBottom: 16,
+            }}
           >
             Comparison
           </span>
-
           <h2
-            className={`text-[clamp(26px,6vw,54px)] leading-[1.1] tracking-[-0.025em] ${
-              dark ? "text-white" : "text-zinc-950"
-            }`}
+            style={{
+              fontFamily: "'Instrument Serif', serif",
+              fontSize: "clamp(28px, 5vw, 52px)",
+              lineHeight: 1.1,
+              letterSpacing: "-0.025em",
+              color: T.text,
+              margin: "0 0 48px",
+            }}
           >
             Why teams switch
             <br />
-            <span className="text-orange-400">to RestMan.</span>
+            <span style={{ color: T.accent }}>to RestMan.</span>
           </h2>
-        </motion.div>
+        </Reveal>
 
-        {/* ---------- MOBILE LAYOUT ---------- */}
-        <div className="md:hidden space-y-6">
+        {/* Mobile */}
+        <div
+          className="flex md:hidden"
+          style={{ flexDirection: "column", gap: 10 }}
+        >
           {ROWS.map((row, i) => (
-            <motion.div
+            <Card
               key={row.feat}
-              initial={{ opacity: 0, y: 10 }}
-              animate={inView ? { opacity: 1, y: 0 } : {}}
-              transition={{ delay: i * 0.05 }}
-              className={`rounded-xl border p-5 ${
-                dark ? "border-white/10 bg-white/2" : "border-black/10 bg-white"
-              }`}
+              style={{
+                padding: "14px 16px",
+                opacity: inView ? 1 : 0,
+                transform: inView ? "translateY(0)" : "translateY(8px)",
+                transition: `opacity 0.4s ease ${i * 0.04}s, transform 0.4s ease ${i * 0.04}s`,
+              }}
             >
               <div
-                className={`text-sm mb-4 ${
-                  dark ? "text-white/70" : "text-zinc-700"
-                }`}
+                style={{
+                  fontFamily: "'Geist', sans-serif",
+                  fontSize: 13,
+                  color: T.text,
+                  marginBottom: 12,
+                }}
               >
                 {row.feat}
               </div>
-
-              <div className="grid grid-cols-3 gap-3 text-center text-xs">
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr 1fr",
+                  gap: 8,
+                  textAlign: "center",
+                }}
+              >
                 {[
-                  { name: "RestMan", value: row.rm, highlight: true },
-                  { name: "Postman", value: row.po },
-                  { name: "Insomnia", value: row.ins },
+                  { n: "RestMan", v: row.rm, hi: true },
+                  { n: "Postman", v: row.po },
+                  { n: "Insomnia", v: row.ins },
                 ].map((item) => (
                   <div
-                    key={item.name}
-                    className={`rounded-md py-2 ${
-                      item.highlight ? "bg-orange-400/10" : ""
-                    }`}
+                    key={item.n}
+                    style={{
+                      padding: "8px 4px",
+                      borderRadius: 8,
+                      background: item.hi ? T.accentMuted : "transparent",
+                    }}
                   >
-                    <div className="mb-1 text-[10px] opacity-60">
-                      {item.name}
+                    <div
+                      style={{
+                        fontFamily: "'Geist', sans-serif",
+                        fontSize: 9,
+                        color: T.textFaint,
+                        marginBottom: 5,
+                      }}
+                    >
+                      {item.n}
                     </div>
-
-                    {item.value ? (
-                      <Check size={14} className="mx-auto text-emerald-400" />
+                    {item.v ? (
+                      <Check
+                        size={13}
+                        style={{ color: T.green, margin: "0 auto" }}
+                      />
                     ) : (
                       <X
-                        size={14}
-                        className={`mx-auto ${
-                          dark ? "text-white/20" : "text-zinc-300"
-                        }`}
+                        size={12}
+                        style={{ color: T.border, margin: "0 auto" }}
                       />
                     )}
                   </div>
                 ))}
               </div>
-            </motion.div>
+            </Card>
           ))}
         </div>
 
-        {/* ---------- DESKTOP TABLE ---------- */}
+        {/* Desktop */}
         <div className="hidden md:block">
-          <div
-            className={`overflow-hidden rounded-xl border ${
-              dark ? "border-white/10" : "border-black/10"
-            }`}
+          <Card
+            hover={false}
+            style={{
+              overflow: "hidden",
+              borderRadius: 16,
+              opacity: inView ? 1 : 0,
+              transform: inView ? "translateY(0)" : "translateY(12px)",
+              transition: "opacity 0.5s ease, transform 0.5s ease",
+            }}
           >
-            {/* Header */}
+            {/* Header row */}
             <div
-              className={`grid grid-cols-4 border-b ${
-                dark ? "border-white/10" : "border-black/10"
-              }`}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr 1fr 1fr",
+                borderBottom: `1px solid ${T.border}`,
+              }}
             >
-              <div className="py-5 px-6" />
-
-              {["RestMan", "Postman", "Insomnia"].map((name, i) => (
+              <div style={{ padding: "16px 20px" }} />
+              {["RestMan", "Postman", "Insomnia"].map((n, i) => (
                 <div
-                  key={name}
-                  className={`py-5 text-center text-sm ${
-                    i === 0
-                      ? "text-orange-400 font-medium"
-                      : dark
-                        ? "text-white/40"
-                        : "text-zinc-400"
-                  }`}
+                  key={n}
+                  style={{
+                    padding: "16px 20px",
+                    textAlign: "center",
+                    fontFamily: "'Geist', sans-serif",
+                    fontSize: 13,
+                    color: i === 0 ? T.accent : T.textFaint,
+                    fontWeight: i === 0 ? 500 : 400,
+                  }}
                 >
                   {i === 0 && (
-                    <div className="text-[10px] opacity-50 mb-1">free</div>
+                    <div
+                      style={{
+                        fontFamily: "'Geist Mono', monospace",
+                        fontSize: 9,
+                        color: T.textFaint,
+                        marginBottom: 3,
+                      }}
+                    >
+                      free
+                    </div>
                   )}
-                  {name}
+                  {n}
                 </div>
               ))}
             </div>
 
+            {/* Data rows — plain divs, no motion, CSS transition on the parent Card handles the reveal */}
             {ROWS.map((row, i) => (
-              <motion.div
+              <div
                 key={row.feat}
-                initial={{ opacity: 0 }}
-                animate={inView ? { opacity: 1 } : {}}
-                transition={{ delay: 0.2 + i * 0.04 }}
-                className={`grid grid-cols-4 items-center ${
-                  i < ROWS.length - 1
-                    ? dark
-                      ? "border-b border-white/5"
-                      : "border-b border-black/5"
-                    : ""
-                }`}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr 1fr 1fr",
+                  borderBottom:
+                    i < ROWS.length - 1 ? `1px solid ${T.border}` : "none",
+                }}
               >
                 <div
-                  className={`py-4 px-6 text-sm ${
-                    dark ? "text-white/60" : "text-zinc-600"
-                  }`}
+                  style={{
+                    padding: "14px 20px",
+                    fontFamily: "'Geist', sans-serif",
+                    fontSize: 13,
+                    color: T.textMuted,
+                  }}
                 >
                   {row.feat}
                 </div>
-
                 {[row.rm, row.po, row.ins].map((ok, j) => (
                   <div
                     key={j}
-                    className={`py-4 text-center ${
-                      j === 0 ? "bg-orange-400/5" : ""
-                    }`}
+                    style={{
+                      padding: "14px 20px",
+                      textAlign: "center",
+                      background: j === 0 ? T.accentMuted : "transparent",
+                    }}
                   >
                     {ok ? (
-                      <Check size={15} className="text-emerald-400 mx-auto" />
+                      <Check
+                        size={14}
+                        style={{ color: T.green, margin: "0 auto" }}
+                      />
                     ) : (
                       <X
-                        size={14}
-                        className={`mx-auto ${
-                          dark ? "text-white/20" : "text-zinc-300"
-                        }`}
+                        size={13}
+                        style={{ color: T.border, margin: "0 auto" }}
                       />
                     )}
                   </div>
                 ))}
-              </motion.div>
+              </div>
             ))}
-          </div>
+          </Card>
         </div>
       </div>
     </section>
   );
 }
 
-/* ── Testimonials ─────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════
+   TESTIMONIALS
+══════════════════════════════════════════════════════ */
 const TESTI = [
   {
     q: "Switched from Postman after the paywall. RestMan is snappier, my credentials never leave my laptop, and I haven't thought about it since setup. That's the dream.",
@@ -1686,7 +2357,6 @@ const TESTI = [
     role: "Full-stack Dev",
     co: "Indie",
   },
-
   {
     q: "Honestly I just wanted something lighter than Postman. RestMan starts instantly and doesn't feel like launching an IDE just to hit an endpoint.",
     name: "Daniel R.",
@@ -1694,7 +2364,7 @@ const TESTI = [
     co: "Startup",
   },
   {
-    q: "I use it mainly for quick endpoint checks while building features. The fact that it's a browser extension makes it ridiculously convenient.",
+    q: "I use it mainly for quick endpoint checks while building features. The fact that it's browser-based makes it ridiculously convenient.",
     name: "Sara L.",
     role: "Frontend Engineer",
     co: "E-commerce",
@@ -1711,91 +2381,110 @@ const TESTI = [
     role: "Platform Engineer",
     co: "Enterprise",
   },
-  {
-    q: "It's simple in a good way. I can send requests, manage headers, save collections. That's literally all I need most days.",
-    name: "Emily C.",
-    role: "Software Engineer",
-    co: "SaaS",
-  },
-  {
-    q: "I didn't even realize how much friction switching apps caused until I stopped doing it. RestMan just lives in my browser now.",
-    name: "Javier M.",
-    role: "Full-stack Developer",
-    co: "Startup",
-  },
-  {
-    q: "Downloaded it out of curiosity and ended up keeping it. For day-to-day API work it's actually faster than the tools I used before.",
-    name: "Tom H.",
-    role: "Backend Engineer",
-    co: "Fintech",
-  },
-  {
-    q: "Lightweight, local, and no login screen. That's pretty much everything I wanted from an API client.",
-    name: "Aisha K.",
-    role: "Developer",
-    co: "Indie",
-  },
 ];
 
-function Testimonials({ dark }) {
+function Testimonials() {
+  const T = useT();
   const ref = useRef();
   const inView = useInView(ref, { once: true, margin: "-80px" });
-  const [active, setActive] = useState(2);
-  const t = TESTI[active];
+  const [active, setActive] = useState(0);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setActive((a) => (a + 1) % TESTI.length);
-    }, 3000);
-
-    return () => {
-      clearInterval(interval);
-    };
+    const id = setInterval(
+      () => setActive((a) => (a + 1) % TESTI.length),
+      4000,
+    );
+    return () => clearInterval(id);
   }, []);
+
+  const t = TESTI[active];
 
   return (
     <section
       id="testimonials"
       ref={ref}
-      className={`pb-48 pt-50 border-y ${dark ? "border-white/6 bg-[#0d0d0d]" : "border-black/6 bg-zinc-50"}`}
+      style={{
+        padding: "120px 24px",
+        background: T.bgAlt,
+        borderTop: `1px solid ${T.border}`,
+      }}
     >
-      <div className="max-w-4xl mx-auto px-8">
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={inView ? { opacity: 1, y: 0 } : {}}
-          transition={{ duration: 0.2 }}
-          className="mb-16"
-        >
+      <div className="max-w-3xl mx-auto">
+        <Reveal>
           <span
-            className={`text-[11px] font-medium tracking-[0.2em] uppercase block mb-5 ${MONO} ${dark ? "text-white/25" : "text-zinc-400"}`}
+            style={{
+              fontFamily: "'Geist Mono', monospace",
+              fontSize: 10,
+              letterSpacing: "0.2em",
+              textTransform: "uppercase",
+              color: T.textFaint,
+              display: "block",
+              marginBottom: 16,
+            }}
           >
             Testimonials
           </span>
           <h2
-            className={`text-[clamp(28px,4.5vw,54px)] font-medium tracking-[-0.025em] ${SERIF} ${dark ? "text-white" : "text-zinc-950"}`}
+            style={{
+              fontFamily: "'Instrument Serif', serif",
+              fontSize: "clamp(28px, 4.5vw, 52px)",
+              lineHeight: 1.1,
+              letterSpacing: "-0.025em",
+              color: T.text,
+              marginBottom: 48,
+              margin: "0 0 48px",
+            }}
           >
             Developers don't lie.
           </h2>
-        </motion.div>
+        </Reveal>
 
         <AnimatePresence mode="popLayout">
           <motion.div
             key={active}
-            initial={{ opacity: 0, y: 16 }}
+            initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -16 }}
-            transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+            exit={{ opacity: 0, y: -14 }}
+            transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
           >
-            <GlassCard dark={dark} className="p-10 md:p-14">
+            <Card style={{ padding: "clamp(24px, 5vw, 52px)" }}>
               <p
-                className={`text-[clamp(17px,2.2vw,22px)] font-light leading-[1.75] mb-10 ${dark ? "text-white/75" : "text-zinc-700"}`}
+                style={{
+                  fontFamily: "'Instrument Serif', serif",
+                  fontStyle: "italic",
+                  fontSize: "clamp(16px, 2.2vw, 21px)",
+                  lineHeight: 1.75,
+                  color: T.text,
+                  marginBottom: 28,
+                  margin: "0 0 28px",
+                }}
               >
                 "{t.q}"
               </p>
-              <div className="flex items-center justify-between flex-wrap gap-4">
-                <div className="flex items-center gap-4">
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  flexWrap: "wrap",
+                  gap: 12,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                   <div
-                    className={`w-10 h-10 rounded-2xl flex items-center justify-center text-[12px] font-medium shrink-0 ${MONO} ${dark ? "bg-white/6 text-white/60" : "bg-zinc-100 text-zinc-600"}`}
+                    style={{
+                      width: 38,
+                      height: 38,
+                      borderRadius: 10,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      background: T.bgCard,
+                      border: `1px solid ${T.border}`,
+                      fontFamily: "'Geist Mono', monospace",
+                      fontSize: 12,
+                      color: T.text,
+                    }}
                   >
                     {t.name
                       .split(" ")
@@ -1804,53 +2493,87 @@ function Testimonials({ dark }) {
                   </div>
                   <div>
                     <div
-                      className={`text-[14px] font-medium ${SANS} ${dark ? "text-white/80" : "text-zinc-900"}`}
+                      style={{
+                        fontFamily: "'Geist', sans-serif",
+                        fontSize: 13,
+                        fontWeight: 500,
+                        color: T.text,
+                      }}
                     >
                       {t.name}
                     </div>
                     <div
-                      className={`text-[12px] font-light ${SANS} ${dark ? "text-white/30" : "text-zinc-400"}`}
+                      style={{
+                        fontFamily: "'Geist', sans-serif",
+                        fontSize: 11,
+                        color: T.textFaint,
+                      }}
                     >
                       {t.role} · {t.co}
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <motion.button
-                    whileHover={{ scale: 1.08 }}
-                    whileTap={{ scale: 0.92 }}
-                    onClick={() =>
-                      setActive((a) => (a - 1 + TESTI.length) % TESTI.length)
-                    }
-                    className={`cursor-pointer w-9 h-9 rounded-xl border flex items-center justify-center text-[16px] transition-all ${dark ? "border-white/10 text-white/40 hover:border-white/25 hover:text-white/80" : "border-zinc-200 text-zinc-400 hover:border-zinc-400"}`}
-                  >
-                    ‹
-                  </motion.button>
-                  <motion.button
-                    whileHover={{ scale: 1.08 }}
-                    whileTap={{ scale: 0.92 }}
-                    onClick={() => setActive((a) => (a + 1) % TESTI.length)}
-                    className={`cursor-pointer w-9 h-9 rounded-xl border flex items-center justify-center text-[16px] transition-all ${dark ? "border-white/10 text-white/40 hover:border-white/25 hover:text-white/80" : "border-zinc-200 text-zinc-400 hover:border-zinc-400"}`}
-                  >
-                    ›
-                  </motion.button>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {["‹", "›"].map((ch, j) => (
+                    <motion.button
+                      key={j}
+                      onClick={() =>
+                        setActive((a) =>
+                          j === 0
+                            ? (a - 1 + TESTI.length) % TESTI.length
+                            : (a + 1) % TESTI.length,
+                        )
+                      }
+                      whileHover={{ scale: 1.08 }}
+                      whileTap={{ scale: 0.92 }}
+                      style={{
+                        width: 34,
+                        height: 34,
+                        borderRadius: 10,
+                        border: `1px solid ${T.border}`,
+                        background: "transparent",
+                        color: T.textMuted,
+                        fontSize: 18,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        transition: "all 0.15s ease",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = T.borderHover;
+                        e.currentTarget.style.color = T.text;
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = T.border;
+                        e.currentTarget.style.color = T.textMuted;
+                      }}
+                    >
+                      {ch}
+                    </motion.button>
+                  ))}
                 </div>
               </div>
-            </GlassCard>
+            </Card>
           </motion.div>
         </AnimatePresence>
 
-        <div className="flex items-center gap-2 mt-6">
+        {/* Dots */}
+        <div style={{ display: "flex", gap: 6, marginTop: 20 }}>
           {TESTI.map((_, i) => (
             <motion.button
               key={i}
               onClick={() => setActive(i)}
               animate={{
-                width: i === active ? 24 : 6,
+                width: i === active ? 22 : 6,
                 opacity: i === active ? 1 : 0.25,
               }}
-              transition={{ duration: 0.25 }}
-              className={`cursor-pointer h-1 rounded-full ${i === active ? "bg-orange-400" : dark ? "bg-white/30" : "bg-zinc-300"}`}
+              transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+              style={{
+                height: 4,
+                borderRadius: 2,
+                background: i === active ? T.accent : T.textFaint,
+                border: "none",
+              }}
             />
           ))}
         </div>
@@ -1859,61 +2582,138 @@ function Testimonials({ dark }) {
   );
 }
 
-/* ── Final CTA ────────────────────────────────────────── */
-function FinalCTA({ os, dark }) {
+/* ══════════════════════════════════════════════════════
+   FINAL CTA
+══════════════════════════════════════════════════════ */
+function FinalCTA({ os }) {
+  const T = useT();
   const ref = useRef();
   const inView = useInView(ref, { once: true, margin: "-100px" });
 
   return (
     <section
       ref={ref}
-      className={`py-40 relative overflow-hidden ${dark ? "bg-[#0a0a0a]" : "bg-[#f9f8f6]"}`}
+      style={{
+        padding: "140px 24px",
+        background: T.bg,
+        position: "relative",
+        overflow: "hidden",
+      }}
     >
-      {/* Single soft ambient */}
       <div
-        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-125 h-80 "
         style={{
-          background:
-            "radial-gradient(ellipse, rgba(245,158,11,0.07) 0%, transparent 70%)",
-          filter: "blur(40px)",
+          position: "absolute",
+          inset: 0,
+          background: T.gradientCta,
+          pointerEvents: "none",
         }}
       />
-
       <motion.div
-        initial={{ opacity: 0, y: 28 }}
+        initial={{ opacity: 0, y: 24 }}
         animate={inView ? { opacity: 1, y: 0 } : {}}
-        transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-        className="relative max-w-3xl mx-auto px-8 text-center"
+        transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+        style={{
+          maxWidth: 680,
+          margin: "0 auto",
+          textAlign: "center",
+          position: "relative",
+          zIndex: 1,
+        }}
       >
         <span
-          className={`text-[11px] font-medium tracking-[0.2em] uppercase block mb-8 ${MONO} ${dark ? "text-white/25" : "text-zinc-400"}`}
+          style={{
+            fontFamily: "'Geist Mono', monospace",
+            fontSize: 10,
+            letterSpacing: "0.2em",
+            textTransform: "uppercase",
+            color: T.textFaint,
+            display: "block",
+            marginBottom: 24,
+          }}
         >
           Get started
         </span>
         <h2
-          className={`text-[clamp(36px,6.5vw,78px)] font-medium tracking-[-0.03em] leading-[1.05] mb-8 ${SERIF} ${dark ? "text-white" : "text-zinc-950"}`}
+          style={{
+            fontFamily: "'Instrument Serif', serif",
+            fontSize: "clamp(38px, 6.5vw, 76px)",
+            lineHeight: 1.05,
+            letterSpacing: "-0.03em",
+            color: T.text,
+            margin: "0 0 20px",
+          }}
         >
           Your API workflow,
           <br />
-          <em className="text-orange-400 not-italic">finally free.</em>
+          <em style={{ color: T.accent, fontStyle: "italic" }}>
+            finally free.
+          </em>
         </h2>
         <p
-          className={`text-[17px] font-light leading-[1.75] mb-12 max-w-lg mx-auto ${SANS} ${dark ? "text-white/35" : "text-zinc-500"}`}
+          style={{
+            fontFamily: "'Geist', sans-serif",
+            fontWeight: 300,
+            fontSize: 16,
+            lineHeight: 1.75,
+            color: T.textMuted,
+            maxWidth: 480,
+            margin: "0 auto 44px",
+          }}
         >
           Install once. Open your browser. Start testing. RestMan is ready
           before you think to look for it.
         </p>
-
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-10">
-          <DownloadBtn os={os} size="lg" dark={dark} />
-          {/* <DownloadBtn os={os} size="lg" ghost /> */}
+        <div
+          className="flex flex-col sm:flex-row items-center justify-center gap-3"
+          style={{ marginBottom: 36 }}
+        >
+          <DownloadBtn os={os} size="lg" />
+          <motion.a
+            href="https://github.com/nithin-sivakumar/open-restman"
+            target="_blank"
+            rel="noopener"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 7,
+              padding: "14px 28px",
+              borderRadius: 14,
+              fontFamily: "'Geist', sans-serif",
+              fontSize: 15,
+              fontWeight: 500,
+              color: T.textMuted,
+              border: `1px solid ${T.border}`,
+              background: "transparent",
+              textDecoration: "none",
+              transition: "all 0.18s ease",
+            }}
+            whileHover={{
+              borderColor: T.borderHover,
+              color: T.text,
+              scale: 1.02,
+            }}
+            whileTap={{ scale: 0.97 }}
+          >
+            <Github size={16} />
+            View on GitHub
+          </motion.a>
         </div>
-
         <a
           href="mailto:restmansupport@paper.neuto.in"
-          className={`cursor-pointer inline-flex items-center gap-2 text-[13px] font-light transition-colors ${MONO} ${dark ? "text-white/20 hover:text-white/50" : "text-zinc-400 hover:text-zinc-700"}`}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 7,
+            fontFamily: "'Geist Mono', monospace",
+            fontSize: 12,
+            color: T.textFaint,
+            textDecoration: "none",
+            transition: "color 0.18s",
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.color = T.textMuted)}
+          onMouseLeave={(e) => (e.currentTarget.style.color = T.textFaint)}
         >
-          <Mail size={13} />
+          <Mail size={12} />
           restmansupport@paper.neuto.in
         </a>
       </motion.div>
@@ -1921,84 +2721,134 @@ function FinalCTA({ os, dark }) {
   );
 }
 
-/* ── Footer ───────────────────────────────────────────── */
-function Footer({ dark }) {
+/* ══════════════════════════════════════════════════════
+   FOOTER
+══════════════════════════════════════════════════════ */
+function Footer() {
+  const T = useT();
   return (
     <footer
-      className={`border-t px-8 py-10 ${dark ? "border-white/6 bg-[#0a0a0a]" : "border-black/6 bg-[#f9f8f6]"}`}
+      style={{
+        borderTop: `1px solid ${T.border}`,
+        background: T.bgAlt,
+        padding: "28px 24px",
+      }}
     >
       <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
         <div
-          className={`flex items-center gap-2 text-[15px] font-medium ${SANS} ${dark ? "text-white/50" : "text-zinc-600"}`}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            fontFamily: "'Geist', sans-serif",
+            fontWeight: 500,
+            fontSize: 14,
+            color: T.textMuted,
+          }}
         >
-          <div className="w-5 h-5 grid grid-cols-2 grid-rows-2 gap-0.5">
-            <div className="rounded-[1px] bg-orange-400" />
-            <div className="rounded-[1px] bg-orange-400/50" />
-            <div className="rounded-[1px] bg-orange-400/50" />
-            <div className="rounded-[1px] bg-orange-400/20" />
-          </div>
+          <LogoMark size={18} />
           RestMan
         </div>
         <div
-          className={`flex items-center gap-6 text-[12px] font-light ${MONO} ${dark ? "text-white/25" : "text-zinc-400"}`}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 20,
+            fontFamily: "'Geist Mono', monospace",
+            fontSize: 11,
+            color: T.textFaint,
+          }}
         >
           <a
             href="https://github.com/nithin-sivakumar/open-restman"
             target="_blank"
             rel="noopener"
-            className={`cursor-pointer inline-flex items-center gap-1.5 transition-colors ${dark ? "hover:text-white/60" : "hover:text-zinc-700"}`}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              color: T.textFaint,
+              textDecoration: "none",
+              transition: "color 0.15s",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = T.textMuted)}
+            onMouseLeave={(e) => (e.currentTarget.style.color = T.textFaint)}
           >
             <Github size={12} /> GitHub
           </a>
           <a
             href="mailto:restmansupport@paper.neuto.in"
-            className={`cursor-pointer inline-flex items-center gap-1.5 transition-colors ${dark ? "hover:text-white/60" : "hover:text-zinc-700"}`}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              color: T.textFaint,
+              textDecoration: "none",
+              transition: "color 0.15s",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = T.textMuted)}
+            onMouseLeave={(e) => (e.currentTarget.style.color = T.textFaint)}
           >
             <Mail size={12} /> Support
           </a>
-          <span>© {new Date().getFullYear()} RestMan.</span>
+          <span>© {new Date().getFullYear()} RestMan</span>
         </div>
       </div>
     </footer>
   );
 }
 
-/* ── Root ─────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════
+   ROOT
+══════════════════════════════════════════════════════ */
 export default function App() {
-  const [dark, setDark] = useState(true);
   const [os, setOs] = useState("unknown");
+  const [isDark, setIsDark] = useState(BASE_DARK_THEME.dark);
+
+  // Resolve which theme object to use based on current isDark state
+  const activeTheme = isDark ? BASE_REAL_DARK_THEME : BASE_LIGHT_THEME;
+
+  const toggleDark = useCallback(() => setIsDark((d) => !d), []);
 
   useEffect(() => {
     setOs(detectOS());
+    // Respect system preference on first load
     if (window.matchMedia) {
-      setDark(window.matchMedia("(prefers-color-scheme: dark)").matches);
+      setIsDark(window.matchMedia("(prefers-color-scheme: dark)").matches);
     }
-    // Hide default cursor
-    // document.documentElement.style.cursor = "none";
+    document.documentElement.style.cursor = "none";
+    document.body.style.cursor = "none";
     return () => {
       document.documentElement.style.cursor = "";
+      document.body.style.cursor = "";
     };
   }, []);
 
-  const toggle = useCallback(() => setDark((d) => !d), []);
-
   return (
-    <div
-      className={`${SANS} transition-colors duration-500 overflow-x-clip ${dark ? "bg-[#0a0a0a] text-white" : "bg-[#ededed] text-zinc-900"}`}
-    >
-      <Fonts />
-      {/* <CustomCursor dark={dark} /> */}
-      <Navbar dark={dark} onToggle={toggle} os={os} />
-      <main>
-        <Hero os={os} dark={dark} />
-        <StatsBar dark={dark} />
-        <Features dark={dark} />
-        <Lightweight dark={dark} />
-        <Compare dark={dark} />
-        <Testimonials dark={dark} />
-        <FinalCTA os={os} dark={dark} />
-      </main>
-      <Footer dark={dark} />
-    </div>
+    <ThemeCtx.Provider value={activeTheme}>
+      <div
+        style={{
+          background: activeTheme.bg,
+          color: activeTheme.text,
+          overflowX: "clip",
+          transition: "background 0.35s ease, color 0.35s ease",
+        }}
+      >
+        <Fonts />
+        <ThemeInjector theme={activeTheme} />
+        <CustomCursor />
+        <Navbar os={os} isDark={isDark} onToggleDark={toggleDark} />
+        <main>
+          <Hero os={os} />
+          <StatsBar />
+          <Features />
+          <Lightweight />
+          <Compare />
+          <Testimonials />
+          <FinalCTA os={os} />
+        </main>
+        <Footer />
+      </div>
+    </ThemeCtx.Provider>
   );
 }

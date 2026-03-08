@@ -1,0 +1,26 @@
+Dark Themes
+-----------
+Obsidian
+Midnight
+Ember
+Forest
+Rose
+Slate
+Aurora
+Lava
+Carbon
+Ocean
+Neon
+Noir
+Dusk
+Void
+
+Light Themes
+------------
+Ghost
+Ivory
+Mint
+Lavender
+Sand
+Sakura
+Glacier

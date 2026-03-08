@@ -1,1 +1,11 @@
 @import "tailwindcss";
+
+* {
+  cursor: none !important;
+}
+
+@media (pointer: coarse) {
+  * {
+    cursor: auto !important;
+  }
+}
