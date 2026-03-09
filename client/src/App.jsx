@@ -57,6 +57,7 @@ import "prismjs/themes/prism-tomorrow.css";
 
 /* ── Load theme from themes.json ───────────────────────── */
 import themesConfig from "./themes.json";
+import { useLocation, useNavigate } from "react-router-dom";
 
 const DARK_THEME_KEYS = [
   "obsidian",
@@ -119,17 +120,17 @@ const BASE_REAL_DARK_THEME = BASE_DARK_THEME.dark
 const ThemeCtx = createContext(BASE_DARK_THEME);
 const useT = () => useContext(ThemeCtx);
 
-const SIGNER_URL = import.meta.env.VITE_SIGNER_URL;
+// const SIGNER_URL = import.meta.env.VITE_SIGNER_URL;
 
-async function fetchSignedUrl(fileKey) {
-  const res = await fetch(SIGNER_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ fileKey }),
-  });
-  const data = await res.json();
-  return data.url;
-}
+// async function fetchSignedUrl(fileKey) {
+//   const res = await fetch(SIGNER_URL, {
+//     method: "POST",
+//     headers: { "Content-Type": "application/json" },
+//     body: JSON.stringify({ fileKey }),
+//   });
+//   const data = await res.json();
+//   return data.url;
+// }
 
 /* ── CSS vars injection ─────────────────────────────────── */
 function ThemeInjector({ theme }) {
@@ -384,6 +385,8 @@ function Navbar({ os, isDark, onToggleDark }) {
   const T = useT();
   const [scrolled, setScrolled] = useState(false);
   const [mOpen, setMOpen] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
 
   useEffect(() => {
     const h = () => setScrolled(window.scrollY > 50);
@@ -411,6 +414,9 @@ function Navbar({ os, isDark, onToggleDark }) {
     >
       {/* ── Main bar: left logo | center links (absolute) | right actions ── */}
       <div
+        onClick={() => {
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }}
         style={{
           maxWidth: 1280,
           margin: "0 auto",
@@ -422,7 +428,9 @@ function Navbar({ os, isDark, onToggleDark }) {
         }}
       >
         {/* Left: Logo */}
-        <div
+        <button
+          onClick={() => navigate("/")}
+          data-cursor="pointer"
           style={{
             display: "flex",
             alignItems: "center",
@@ -433,10 +441,11 @@ function Navbar({ os, isDark, onToggleDark }) {
             color: T.text,
             flexShrink: 0,
           }}
+          className="p-1 cursor-pointer"
         >
           <LogoMark />
           RestMan
-        </div>
+        </button>
 
         {/* Center: nav links — absolutely centered so right-side width doesn't affect position */}
         <div
@@ -536,9 +545,11 @@ function Navbar({ os, isDark, onToggleDark }) {
             </AnimatePresence>
           </motion.button>
 
-          <div className="hidden md:block">
-            <DownloadBtn os={os} size="sm" ghost />
-          </div>
+          {location?.pathname !== "/download" && (
+            <div className="hidden md:block">
+              <DownloadBtn os={os} size="sm" ghost />
+            </div>
+          )}
 
           {/* Mobile hamburger */}
           <button
@@ -684,6 +695,7 @@ function DownloadBtn({ os, size = "md", ghost = false }) {
   const ref = useRef();
   const isMobile = MOBILE_OS.has(os);
   const platform = PLATFORMS[os];
+  const navigate = useNavigate();
 
   useEffect(() => {
     const h = (e) => {
@@ -763,18 +775,19 @@ function DownloadBtn({ os, size = "md", ghost = false }) {
     return (
       <motion.button
         onClick={async () => {
-          setLoading(true);
-          try {
-            const url = await fetchSignedUrl(platform.fileKey);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = platform.fileKey.split("/").pop();
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-          } finally {
-            setLoading(false);
-          }
+          // setLoading(true);
+          // try {
+          //   const url = await fetchSignedUrl(platform.fileKey);
+          //   const a = document.createElement("a");
+          //   a.href = url;
+          //   a.download = platform.fileKey.split("/").pop();
+          //   document.body.appendChild(a);
+          //   a.click();
+          //   a.remove();
+          // } finally {
+          //   setLoading(false);
+          // }
+          navigate("/download");
         }}
         disabled={loading}
         style={{ ...baseStyle, opacity: loading ? 0.75 : 1 }}
@@ -869,17 +882,19 @@ function DownloadBtn({ os, size = "md", ghost = false }) {
 function DropItem({ label, fileKey, isLast }) {
   const T = useT();
   const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
 
   const handleClick = async () => {
     setLoading(true);
     try {
-      const url = await fetchSignedUrl(fileKey);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = fileKey.split("/").pop();
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      // const url = await fetchSignedUrl(fileKey);
+      // const a = document.createElement("a");
+      // a.href = url;
+      // a.download = fileKey.split("/").pop();
+      // document.body.appendChild(a);
+      // a.click();
+      // a.remove();
+      navigate("/download");
     } finally {
       setLoading(false);
     }
@@ -2892,19 +2907,20 @@ function Footer() {
 ══════════════════════════════════════════════════════ */
 export default function App() {
   const [os, setOs] = useState("unknown");
-  const [isDark, setIsDark] = useState(BASE_DARK_THEME.dark);
+  // const [isDark, setIsDark] = useState(BASE_DARK_THEME.dark);
+  const { isDark, toggleDark, ...T } = useT();
 
   // Resolve which theme object to use based on current isDark state
   const activeTheme = isDark ? BASE_REAL_DARK_THEME : BASE_LIGHT_THEME;
 
-  const toggleDark = useCallback(() => setIsDark((d) => !d), []);
+  // const toggleDark = useCallback(() => setIsDark((d) => !d), []);
 
   useEffect(() => {
     setOs(detectOS());
     // Respect system preference on first load
-    if (window.matchMedia) {
-      setIsDark(window.matchMedia("(prefers-color-scheme: dark)").matches);
-    }
+    // if (window.matchMedia) {
+    //   setIsDark(window.matchMedia("(prefers-color-scheme: dark)").matches);
+    // }
     document.documentElement.style.cursor = "none";
     document.body.style.cursor = "none";
     return () => {
@@ -2914,30 +2930,53 @@ export default function App() {
   }, []);
 
   return (
-    <ThemeCtx.Provider value={activeTheme}>
-      <div
-        style={{
-          background: activeTheme.bg,
-          color: activeTheme.text,
-          overflowX: "clip",
-          transition: "background 0.35s ease, color 0.35s ease",
-        }}
-      >
-        <Fonts />
-        <ThemeInjector theme={activeTheme} />
-        <CustomCursor />
-        <Navbar os={os} isDark={isDark} onToggleDark={toggleDark} />
-        <main>
-          <Hero os={os} />
-          <StatsBar />
-          <Features />
-          <Lightweight />
-          <Compare />
-          <Testimonials />
-          <FinalCTA os={os} />
-        </main>
-        <Footer />
-      </div>
+    // <ThemeCtx.Provider value={activeTheme}>
+    <div
+      style={{
+        background: activeTheme.bg,
+        color: activeTheme.text,
+        overflowX: "clip",
+        transition: "background 0.35s ease, color 0.35s ease",
+      }}
+    >
+      <Fonts />
+      <ThemeInjector theme={activeTheme} />
+      <CustomCursor />
+      <Navbar os={os} isDark={isDark} onToggleDark={toggleDark} />
+      <main>
+        <Hero os={os} />
+        <StatsBar />
+        <Features />
+        <Lightweight />
+        <Compare />
+        <Testimonials />
+        <FinalCTA os={os} />
+      </main>
+      <Footer />
+    </div>
+    // </ThemeCtx.Provider>
+  );
+}
+
+export { ThemeCtx, useT, LogoMark, Navbar, Footer };
+
+// Theme provider wrapper — used by main.jsx to wrap the Router
+export function AppThemeProvider({ children }) {
+  const [isDark, setIsDark] = useState(BASE_DARK_THEME.dark);
+  const activeTheme = isDark ? BASE_REAL_DARK_THEME : BASE_LIGHT_THEME;
+  const toggleDark = useCallback(() => setIsDark((d) => !d), []);
+
+  useEffect(() => {
+    if (window.matchMedia) {
+      setIsDark(window.matchMedia("(prefers-color-scheme: dark)").matches);
+    }
+  }, []);
+
+  return (
+    <ThemeCtx.Provider value={{ ...activeTheme, isDark, toggleDark }}>
+      <ThemeInjector theme={activeTheme} />
+      <Fonts />
+      {children}
     </ThemeCtx.Provider>
   );
 }
