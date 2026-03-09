@@ -55,6 +55,7 @@ const FILES = {
 
 function proxyUrl(fileKey) {
   // Encodes the S3 key as a path segment — Lambda decodes it
+  console.log(`${DOWNLOAD_BASE}/${fileKey}`);
   return `${DOWNLOAD_BASE}/${fileKey}`;
 }
 
