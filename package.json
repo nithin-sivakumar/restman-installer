@@ -15,7 +15,7 @@
     "dist:all": "electron-builder -mwl"
   },
   "build": {
-    "appId": "com.neuto.restman",
+    "appId": "com.restman.restman",
     "productName": "RestMan Installer",
     "directories": {
       "output": "dist"
